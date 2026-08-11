@@ -143,7 +143,7 @@ Note it's **Ctrl+O** to save, not Ctrl+S — Ctrl+S is the classic terminal soft
 
 ## TinyScript
 
-`run <file>` executes a small C-like scripting language. Integers and strings only (no floats, no arrays/objects) — this keeps the whole interpreter (lexer + recursive-descent parser + tree-walking evaluator) under ~1KB of code.
+`run <file>` executes a small C-like scripting language. Integers and strings only (no floats, no arrays/objects) — this keeps the whole interpreter (lexer + recursive-descent parser + tree-walking evaluator) under ~1KB of code. This section is a quick tour — see **[TINYSCRIPT.md](TINYSCRIPT.md)** for the full manual (complete operator precedence table, scoping rules, every native function, error messages, limits, grammar reference, and a list of non-obvious gotchas like the lack of `else if`).
 
 ```js
 function fact(n) {

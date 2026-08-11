@@ -31,7 +31,7 @@ static void byte_copy(char *dst, const char *src, uint32_t n) {
 enum {
     T_EOF, T_NUM, T_STR, T_IDENT,
     T_LPAREN, T_RPAREN, T_LBRACE, T_RBRACE, T_SEMI, T_COMMA,
-    T_PLUS, T_MINUS, T_STAR, T_SLASH, T_PERCENT,
+    T_PLUS, T_MINUS, T_STAR, T_SLASH, T_PERCENT, T_CARET,
     T_ASSIGN, T_EQ, T_NEQ, T_LT, T_LE, T_GT, T_GE,
     T_AND, T_OR, T_NOT,
     T_IF, T_ELSE, T_WHILE, T_FUNCTION, T_RETURN, T_TRUE, T_FALSE
@@ -156,6 +156,7 @@ static void lex_next(void) {
         case '*': cur.type = T_STAR; return;
         case '/': cur.type = T_SLASH; return;
         case '%': cur.type = T_PERCENT; return;
+        case '^': cur.type = T_CARET; return;
         case '=':
             if (*lex_src == '=') { lex_src++; cur.type = T_EQ; } else cur.type = T_ASSIGN;
             return;
@@ -209,6 +210,7 @@ static node_t *new_node(int type) {
 static node_t *parse_expression(void);
 static node_t *parse_statement(void);
 static node_t *parse_block(void);
+static node_t *parse_unary(void);
 
 static void expect(int type, const char *what) {
     if (parse_error) return;
@@ -274,6 +276,20 @@ static node_t *parse_primary(void) {
     return NULL;
 }
 
+/* Right-associative and binds tighter than unary minus, so -2^2 is -4 and
+ * 2^3^2 is 2^(3^2), matching ordinary math notation. */
+static node_t *parse_power(void) {
+    node_t *base = parse_primary();
+    if (cur.type == T_CARET) {
+        node_t *n = new_node(N_BINOP);
+        if (n) n->op = T_CARET;
+        lex_next();
+        if (n) { n->a = base; n->b = parse_unary(); }
+        return n;
+    }
+    return base;
+}
+
 static node_t *parse_unary(void) {
     if (cur.type == T_MINUS || cur.type == T_NOT) {
         node_t *n = new_node(N_UNOP);
@@ -282,7 +298,7 @@ static node_t *parse_unary(void) {
         if (n) n->a = parse_unary();
         return n;
     }
-    return parse_primary();
+    return parse_power();
 }
 
 static node_t *parse_binop_level(node_t *(*next_level)(void), const int *ops, int nops) {
@@ -654,6 +670,7 @@ static value_t call_function(const char *name, node_t *arg_exprs) {
     int i;
 
     for (a = arg_exprs; a && argc < 8; a = a->next) args[argc++] = eval_expr(a);
+    if (runtime_error) return val_nil();
 
     for (i = 0; i < NUM_NATIVES; i++) {
         if (strcmp(natives[i].name, name) == 0) return natives[i].fn(args, argc);
@@ -732,6 +749,12 @@ static value_t eval_expr(node_t *n) {
                     case T_PERCENT:
                         if (r.i == 0) { rt_error("division by zero"); return val_int(0); }
                         return val_int(l.i % r.i);
+                    case T_CARET: {
+                        int32_t result = 1, i;
+                        if (r.i < 0) { rt_error("negative exponent not supported"); return val_int(0); }
+                        for (i = 0; i < r.i; i++) result *= l.i;
+                        return val_int(result);
+                    }
                     case T_LT: return val_bool(l.i < r.i);
                     case T_LE: return val_bool(l.i <= r.i);
                     case T_GT: return val_bool(l.i > r.i);
