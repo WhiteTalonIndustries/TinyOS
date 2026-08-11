@@ -182,6 +182,7 @@ These call straight into the OS (the "exec functions"):
 | `read(name)` | Read a file's contents as a string, or `nil` if missing |
 | `exists(name)` | `true`/`false` |
 | `len(s)` | String length |
+| `randdigit()` | A random digit 0-9, drawn from real ADC noise (see [TINYSCRIPT.md](TINYSCRIPT.md#native-functions)) |
 
 Adding a new native function means adding one entry to the `natives[]` table in `src/script.c` — wrap any existing C function with the `value_t (*)(value_t *args, int argc)` signature.
 
@@ -200,6 +201,7 @@ Adding a new native function means adding one entry to the `natives[]` table in 
 | `src/usb.c` / `usb.h` | Clock/PLL bring-up, RP2040 USB device controller, CDC-ACM enumeration and console I/O |
 | `src/flash.c` / `flash.h` | QSPI flash access via the RP2040 boot ROM's function table (erase/program/read) — no bit-banging, no `pico-sdk` |
 | `src/fs.c` / `fs.h` | TinyFS: superblock, directory table, append-only file data |
+| `src/adc.c` / `adc.h` | ADC bring-up + `randdigit()`'s hardware entropy source (GPIO26 noise XOR temp sensor, Von Neumann debiased) |
 | `src/editor.c` / `editor.h` | The `nano`-like screen editor |
 | `src/script.c` / `script.h` | TinyScript: lexer, parser, tree-walking interpreter, native function table |
 | `src/stdint.h` / `string.h` | Minimal freestanding replacements (no libc) |

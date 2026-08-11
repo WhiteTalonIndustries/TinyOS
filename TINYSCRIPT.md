@@ -184,6 +184,7 @@ The "exec functions" — calls straight into the OS:
 | `read(name)` | Reads file `name` as a string via `fs_read`. Returns `nil` if the file doesn't exist or is too large for the internal read buffer (4KB). |
 | `exists(name)` | `true`/`false`, via `fs_stat`. |
 | `len(s)` | String length. Returns `0` for non-string arguments. |
+| `randdigit()` | A random digit `0`-`9`. Drawn from the RP2040's ADC: GPIO26 left floating as a noise source, XORed with the internal temperature sensor's LSB jitter, then [Von Neumann debiased](https://en.wikipedia.org/wiki/Randomness_extractor#Von_Neumann_extractor) and rejection-sampled into range. Genuinely non-deterministic hardware entropy — **not cryptographically secure** (no whitening beyond debiasing, no seed-stretching), but real randomness, not a PRNG. Blocks briefly (sub-millisecond) while sampling; see `src/adc.c`. |
 
 Calling one of these with too few required arguments is a runtime error naming the function (e.g. `write(name, content) needs 2 arguments`).
 
