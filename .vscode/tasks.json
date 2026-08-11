@@ -1,0 +1,22 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Build Bare-Metal Kernel",
+            "type": "shell",
+            "command": "arm-none-eabi-gcc -c -mcpu=cortex-m0plus -mthumb src/crt0.s -o build/crt0.o && for f in main usb flash fs editor script; do arm-none-eabi-gcc -c -mcpu=cortex-m0plus -mthumb -O2 -ffreestanding -nostdinc -Isrc src/$f.c -o build/$f.o || exit 1; done && arm-none-eabi-gcc -mcpu=cortex-m0plus -mthumb -T src/linker.ld build/crt0.o build/main.o build/usb.o build/flash.o build/fs.o build/editor.o build/script.o -o build/kernel.elf -nostdlib -lgcc && arm-none-eabi-objcopy -O binary build/kernel.elf release/kernel.bin && picotool load release/kernel.bin -t bin -o 0x20000000 -v -f -x",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "Build & Flash Persistent (Boot from Flash)",
+            "type": "shell",
+            "command": "arm-none-eabi-gcc -c -mcpu=cortex-m0plus -mthumb src/boot2.S -o build/boot2.o && arm-none-eabi-ld -T src/boot2_link.ld build/boot2.o -o build/boot2.elf && arm-none-eabi-objcopy -O binary build/boot2.elf build/boot2_raw.bin && python3 tools/pad_checksum.py build/boot2_raw.bin build/boot2_padded.bin && arm-none-eabi-gcc -c -mcpu=cortex-m0plus -mthumb src/crt0_flash.s -o build/crt0_flash.o && for f in main usb flash fs editor script; do arm-none-eabi-gcc -c -mcpu=cortex-m0plus -mthumb -O2 -ffreestanding -nostdinc -Isrc src/$f.c -o build/$f.o || exit 1; done && arm-none-eabi-gcc -mcpu=cortex-m0plus -mthumb -T src/linker_flash.ld build/crt0_flash.o build/main.o build/usb.o build/flash.o build/fs.o build/editor.o build/script.o -o build/kernel_flash.elf -nostdlib -lgcc && arm-none-eabi-objcopy -O binary build/kernel_flash.elf build/kernel_flash_body.bin && cat build/boot2_padded.bin build/kernel_flash_body.bin > release/kernel_flash.bin && picotool load release/kernel_flash.bin -t bin -o 0x10000000 -v -f -x",
+            "group": "build",
+            "problemMatcher": []
+        }
+    ]
+}
