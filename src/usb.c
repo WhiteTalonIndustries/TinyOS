@@ -317,7 +317,12 @@ static const uint8_t *ep0_in_data;
 static uint16_t ep0_in_remaining;
 static uint8_t ep0_in_zlp_pending;
 
-#define RX_BUF_SIZE 256
+/* Must comfortably exceed main.c's shell input_buffer (512 bytes): a fast
+ * burst write (e.g. `write <file> <long content>` sent in one shot, not
+ * typed by hand) can arrive faster than the shell's character-at-a-time
+ * echo loop drains it, and a too-small ring buffer here silently drops the
+ * overflow instead of erroring. */
+#define RX_BUF_SIZE 1024
 static volatile uint8_t rx_buf[RX_BUF_SIZE];
 static volatile uint16_t rx_head, rx_tail;
 
