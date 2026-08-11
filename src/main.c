@@ -5,6 +5,7 @@
 #include "fs.h"
 #include "editor.h"
 #include "script.h"
+#include "adc.h"
 
 static char catbuf[4096];
 
@@ -146,6 +147,7 @@ int main(void) {
     console_init();
     flash_init();
     fs_init();
+    adc_init();
 
     console_puts("\033[2J\033[H"); // Clear screen on startup
     console_puts("===========================================\n");

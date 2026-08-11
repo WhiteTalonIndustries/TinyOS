@@ -130,6 +130,8 @@ static void pll_init(uint32_t base, uint32_t reset_bit, uint32_t refdiv, uint32_
 #define CLK_PERI_CTRL    REG32(CLOCKS_BASE + 0x48)
 #define CLK_USB_CTRL     REG32(CLOCKS_BASE + 0x54)
 #define CLK_USB_DIV      REG32(CLOCKS_BASE + 0x58)
+#define CLK_ADC_CTRL     REG32(CLOCKS_BASE + 0x60)
+#define CLK_ADC_DIV      REG32(CLOCKS_BASE + 0x64)
 
 static void clocks_init(void) {
     /* Switch clk_sys/clk_ref glitchlessly away from their aux inputs before
@@ -159,6 +161,10 @@ static void clocks_init(void) {
 
     CLK_PERI_CTRL = (CLK_PERI_CTRL & ~(0x7u << 5)); /* aux = clk_sys */
     CLK_PERI_CTRL |= (1u << 11);                    /* enable */
+
+    CLK_ADC_CTRL = (CLK_ADC_CTRL & ~(0x7u << 5)); /* aux = clksrc_pll_usb */
+    CLK_ADC_DIV = (1u << 8);
+    CLK_ADC_CTRL |= (1u << 11); /* enable -- without this, adc.c's busy-wait on ADC_CS_READY never returns */
 }
 
 /* ================= USB controller ================= */

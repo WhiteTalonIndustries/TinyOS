@@ -2,6 +2,7 @@
 #include "script.h"
 #include "usb.h"
 #include "fs.h"
+#include "adc.h"
 #include "string.h"
 
 /* ================= arena allocator (AST nodes + string data) ================= */
@@ -646,15 +647,21 @@ static value_t native_len(value_t *args, int argc) {
     return val_int(0);
 }
 
+static value_t native_randdigit(value_t *args, int argc) {
+    (void)args; (void)argc;
+    return val_int(adc_random_digit());
+}
+
 typedef value_t (*native_fn_t)(value_t *args, int argc);
 typedef struct { const char *name; native_fn_t fn; } native_def_t;
 
 static const native_def_t natives[] = {
-    { "print",  native_print },
-    { "write",  native_write },
-    { "read",   native_read },
-    { "exists", native_exists },
-    { "len",    native_len },
+    { "print",     native_print },
+    { "write",     native_write },
+    { "read",      native_read },
+    { "exists",    native_exists },
+    { "len",       native_len },
+    { "randdigit", native_randdigit },
 };
 #define NUM_NATIVES ((int)(sizeof(natives) / sizeof(natives[0])))
 
