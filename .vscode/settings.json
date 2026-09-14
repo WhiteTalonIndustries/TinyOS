@@ -1,5 +1,6 @@
 {
     "files.associations": {
         "*.ld": "plaintext"
-    }
+    },
+    "cmake.sourceDirectory": "/Users/robert/Library/Mobile Documents/com~apple~CloudDocs/Documents/TinyOS/resources/c"
 }
