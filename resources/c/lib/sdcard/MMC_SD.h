@@ -1,6 +1,7 @@
 #ifndef _MMC_SD_H_
-#define _MMC_SD_H_	
+#define _MMC_SD_H_
 #include "stdio.h"
+#include "stdint.h"
  								    	 
 #define SD_TYPE_ERR     0X00
 #define SD_TYPE_MMC     0X01

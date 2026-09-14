@@ -110,6 +110,21 @@ data_loop:
     b data_loop
 data_done:
 
+    @ Copy flash-touching functions (flash.c) into RAM -- they must not be
+    @ executing from flash while flash itself is unreadable mid-erase/program
+    ldr r0, =_siramfunc
+    ldr r1, =_sramfunc
+    ldr r2, =_eramfunc
+ramfunc_loop:
+    cmp r1, r2
+    bhs ramfunc_done
+    ldr r4, [r0]
+    str r4, [r1]
+    adds r0, r0, #4
+    adds r1, r1, #4
+    b ramfunc_loop
+ramfunc_done:
+
     @ Clear BSS memory section
     ldr r0, =_sbss
     ldr r1, =_ebss

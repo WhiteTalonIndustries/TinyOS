@@ -1,11 +1,38 @@
 #include <stdint.h>
 #include <string.h>
 #include "usb.h"
+#include "flash.h"
+#include "fs.h"
+#include "editor.h"
+#include "script.h"
+#include "adc.h"
 
-/* Stage 2: minimal shell over the USB CDC-ACM console, same UX as the
- * RP2040 build's src_2040/main.c but without filesystem-backed commands --
- * those need flash.c/fs.c ported first (Stage 3). `ls`/`cat`/`write`/etc.
- * will be added back once that lands. */
+/* Stage 3: full 2040-parity shell over the USB CDC-ACM console -- same
+ * command surface as src_2040/main.c (fs, nano editor, script runner, ADC
+ * randomness), now that flash.c/fs.c/editor.c/script.c/adc.c are all ported.
+ * USB itself still doesn't enumerate on real hardware (see README_RP2350.md
+ * "Known issue") -- this is written and buildable, but untested end-to-end. */
+
+static char catbuf[4096];
+
+static void print_udec(uint32_t v) {
+    char tmp[10];
+    int n = 0;
+    if (v == 0) { console_putc('0'); return; }
+    while (v > 0 && n < 10) { tmp[n++] = (char)('0' + v % 10); v /= 10; }
+    while (n > 0) console_putc(tmp[--n]);
+}
+
+static void print_entry(const char *name, int type, uint32_t length) {
+    console_puts(type == FS_TYPE_DIR ? "d " : "- ");
+    console_puts(name);
+    if (type != FS_TYPE_DIR) {
+        console_puts("  (");
+        print_udec(length);
+        console_puts(" bytes)");
+    }
+    console_puts("\n");
+}
 
 static char *next_token(char **cursor) {
     char *start;
@@ -20,18 +47,91 @@ static char *next_token(char **cursor) {
 static void shell_execute(char *cmd_line) {
     char *cursor = cmd_line;
     char *cmd = next_token(&cursor);
+    char *arg1, *arg2;
 
     if (!cmd) return;
 
     if (strcmp(cmd, "help") == 0) {
-        console_puts("Commands: help, sysinfo, clear, hello, exit\n"
-                      "(filesystem commands land in Stage 3 once flash.c is ported)\n");
+        console_puts("Commands: help, sysinfo, clear, hello, ls, cat <file>, write <file> <text>,\n"
+                      "          mkdir <dir>, rm <name>, mv <old> <new>, nano <file>, run <file>,\n"
+                      "          format, exit\n");
     } else if (strcmp(cmd, "sysinfo") == 0) {
-        console_puts("OS: TinyOS RP2350 port -- Stage 2 (USB console)\nCPU: Arm Cortex-M33 (RP2350)\nRAM: 520 KB\nFlash: 16 MB (not yet mounted)\n");
+        console_puts("OS: TinyOS RP2350 port -- Stage 3 (2040 parity)\nCPU: Arm Cortex-M33 (RP2350)\nRAM: 520 KB\nFlash: 16 MB (TinyFS)\n");
     } else if (strcmp(cmd, "hello") == 0) {
         console_puts("Hello from RP2350!\n");
     } else if (strcmp(cmd, "clear") == 0) {
         console_puts("\033[2J\033[H");
+    } else if (strcmp(cmd, "ls") == 0) {
+        fs_list(print_entry);
+    } else if (strcmp(cmd, "cat") == 0) {
+        arg1 = next_token(&cursor);
+        if (!arg1) {
+            console_puts("usage: cat <file>\n");
+        } else {
+            int n = fs_read(arg1, catbuf, sizeof(catbuf));
+            if (n < 0) {
+                console_puts("cat: no such file: ");
+                console_puts(arg1);
+                console_puts("\n");
+            } else {
+                console_write(catbuf, (unsigned int)n);
+                console_puts("\n");
+            }
+        }
+    } else if (strcmp(cmd, "write") == 0) {
+        arg1 = next_token(&cursor);
+        if (!arg1) {
+            console_puts("usage: write <file> <text>\n");
+        } else {
+            arg2 = cursor;
+            while (*arg2 == ' ') arg2++;
+            if (fs_write(arg1, arg2) != 0)
+                console_puts("write: failed (name too long, file table full, or out of space)\n");
+        }
+    } else if (strcmp(cmd, "mkdir") == 0) {
+        arg1 = next_token(&cursor);
+        if (!arg1) console_puts("usage: mkdir <name>\n");
+        else if (fs_mkdir(arg1) != 0) console_puts("mkdir: failed (already exists, name too long, or table full)\n");
+    } else if (strcmp(cmd, "rm") == 0) {
+        arg1 = next_token(&cursor);
+        if (!arg1) {
+            console_puts("usage: rm <name>\n");
+        } else if (fs_remove(arg1) != 0) {
+            console_puts("rm: no such file: ");
+            console_puts(arg1);
+            console_puts("\n");
+        }
+    } else if (strcmp(cmd, "mv") == 0) {
+        arg1 = next_token(&cursor);
+        arg2 = next_token(&cursor);
+        if (!arg1 || !arg2) {
+            console_puts("usage: mv <old> <new>\n");
+        } else if (fs_rename(arg1, arg2) != 0) {
+            console_puts("mv: no such file: ");
+            console_puts(arg1);
+            console_puts("\n");
+        }
+    } else if (strcmp(cmd, "nano") == 0) {
+        arg1 = next_token(&cursor);
+        if (!arg1) console_puts("usage: nano <file>\n");
+        else nano_edit(arg1);
+    } else if (strcmp(cmd, "run") == 0) {
+        arg1 = next_token(&cursor);
+        if (!arg1) {
+            console_puts("usage: run <file>\n");
+        } else {
+            int n = fs_read(arg1, catbuf, sizeof(catbuf));
+            if (n < 0) {
+                console_puts("run: no such file: ");
+                console_puts(arg1);
+                console_puts("\n");
+            } else {
+                script_run(catbuf);
+            }
+        }
+    } else if (strcmp(cmd, "format") == 0) {
+        fs_format();
+        console_puts("Filesystem formatted.\n");
     } else if (strcmp(cmd, "exit") == 0) {
         console_puts("Closing console session...\n");
         console_disconnect();
@@ -42,46 +142,18 @@ static void shell_execute(char *cmd_line) {
     }
 }
 
-#define REG32(addr) (*(volatile uint32_t *)(addr))
-
-/* Diagnostic-only: isolate whether main() is reached and basic GPIO works
- * at all in this build, independent of usb.c's led_init()/led_blink() --
- * identical register sequence to the Stage 1 main.c that was proven working
- * on this exact board. Blinks 5 times at ~1Hz (matching the just-confirmed
- * working sanity test's cadence) rather than once -- a single one-shot
- * blink proved too easy to miss/misjudge over chat; an ongoing repeating
- * pattern for a few seconds is much harder to mis-observe. */
-static void raw_diagnostic_blink(void) {
-    volatile uint32_t n;
-    int i;
-
-    REG32(0x40020000u) |= (1u << 6) | (1u << 9);  /* RESETS_RESET |= IO_BANK0|PADS_BANK0 */
-    REG32(0x40020000u) &= ~((1u << 6) | (1u << 9));
-    while (!(REG32(0x40020008u) & ((1u << 6) | (1u << 9)))); /* RESETS_RESET_DONE */
-
-    REG32(0x40038034u) = 0u;      /* PADS_BANK0 GPIO13: clear ISO/OD */
-    REG32(0x4002806cu) = 5u;      /* IO_BANK0 GPIO13_CTRL: funcsel = SIO */
-    REG32(0xd0000038u) = (1u << 13); /* SIO GPIO_OE_SET */
-
-    for (i = 0; i < 5; i++) {
-        REG32(0xd0000018u) = (1u << 13); /* GPIO_OUT_SET: on */
-        for (n = 3000000u; n; n--);
-        REG32(0xd0000020u) = (1u << 13); /* GPIO_OUT_CLR: off */
-        for (n = 3000000u; n; n--);
-    }
-}
-
 int main(void) {
     char input_buffer[512];
     int char_count = 0;
 
-    raw_diagnostic_blink(); /* checkpoint 0: main() reached, basic GPIO works */
-
     console_init();
+    flash_init();
+    fs_init();
+    adc_init();
 
     console_puts("\033[2J\033[H");
     console_puts("===========================================\n");
-    console_puts("  TinyOS RP2350 Port -- Stage 2 (Pico Plus 2 W)\n");
+    console_puts("  TinyOS RP2350 Port -- Stage 3 (Pico Plus 2 W)\n");
     console_puts("===========================================\n");
     console_puts("Welcome! Type 'help' to view system tasks.\n\n");
 

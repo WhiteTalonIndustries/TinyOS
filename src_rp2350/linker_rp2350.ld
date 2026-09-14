@@ -38,6 +38,19 @@ SECTIONS
         _edata = .;
     } > RAM AT> FLASH
 
+    /* Functions that must never be executing from flash while flash itself
+     * is unreadable (mid-erase/program) -- see flash.c. Copied to RAM by
+     * crt0_rp2350.s's Reset_Handler, same as src_2040/linker_flash.ld. */
+    .ram_func :
+    {
+        . = ALIGN(4);
+        _sramfunc = .;
+        *(.ram_func)
+        . = ALIGN(4);
+        _eramfunc = .;
+    } > RAM AT> FLASH
+    _siramfunc = LOADADDR(.ram_func);
+
     .bss :
     {
         . = ALIGN(4);

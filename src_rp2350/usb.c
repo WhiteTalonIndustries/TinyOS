@@ -15,6 +15,7 @@
 
 #include <stdint.h>
 #include "usb.h"
+#include "lcd.h"
 
 #define NULL ((void *)0)
 
@@ -167,58 +168,121 @@ static void pll_init(uint32_t base, uint32_t reset_bit, uint32_t refdiv, uint32_
 #define CLK_USB_DIV      REG32(CLOCKS_BASE + 0x64)
 #define CLK_ADC_CTRL     REG32(CLOCKS_BASE + 0x6c)
 #define CLK_ADC_DIV      REG32(CLOCKS_BASE + 0x70)
+#define CLK_SYS_RESUS_CTRL REG32(CLOCKS_BASE + 0x84)
 
-/* NOTE: extensive hardware bring-up debugging (see rp2350_gotchas memory
- * note and README_RP2350.md) found that the standard glitchless switch-
- * clk_sys/clk_ref-away-from-aux-then-back sequence -- identical to what
- * works on RP2040, and matching the pico-sdk's own clocks.c algorithm --
- * locks up the RP2350 solid the moment CLK_SYS_CTRL's SRC bit is cleared
- * (confirmed via progressively narrower isolation tests: code before that
- * exact write runs fine, code after it -- even in a completely different,
- * unrelated function -- never executes again). The root cause is not yet
- * understood (ACCESSCTRL, ROSC-disabled, and RESUS were all checked against
- * the datasheet and ruled out as explanations).
- *
- * Workaround: don't touch clk_sys/clk_ref's glitchless mux at all. clk_usb
- * (needed for correct 48MHz USB timing) does NOT have a glitchless mux --
- * per the SDK's clock_configure_internal, non-glitchless clocks are simply
- * disabled, reconfigured, and re-enabled, no risky "switch away first" step
- * -- so USB can still get an accurate clock this way. clk_sys is left
- * running at whatever the boot ROM's default is (aux=ROSC, per its CTRL
- * reset value) instead of the intended 125MHz from PLL_SYS. Slower, but
- * every diagnostic build in this debugging session already ran entirely on
- * this same default clock and executed simple loops reliably, so it should
- * be more than adequate for polling the USB state machine. Revisit once
- * Stage 2 is proven -- getting clk_sys up to full speed matters for
- * anything timing-sensitive added later (e.g. tight SPI loops in Stage 4). */
+/* NOTE ON HISTORY: an earlier version of this function tried to speed up
+ * clk_sys by repointing CLK_SYS_CTRL's AUXSRC field from ROSC to PLL_SYS
+ * *while SRC was still actively selecting aux* (i.e. without ever switching
+ * away first), on the theory that avoiding the specific SRC-bit write that a
+ * prior debugging session found froze the chip solid was the safe move. That
+ * was wrong: that exact "swap the source feeding an actively-selected mux"
+ * pattern is precisely what pico-sdk's own clock_configure_internal() calls
+ * out as unsafe (see its comment "avoid passing glitches when changing aux
+ * mux"). Confirmed by reading pico-sdk's actual boot sequence
+ * (runtime_init_clocks.c) after finding a working bare-pico-sdk USB example
+ * built for this exact board family (Pico 2 W / RP2350) that this sequence
+ * runs on real hardware without hanging: the safe pattern switches clk_sys
+ * and clk_ref away from their aux inputs to glitchless *direct* sources
+ * (clk_ref itself, and ROSC respectively) FIRST -- while still cheaply
+ * clocked off the always-on ROSC, before the PLLs are even touched -- then
+ * brings up the PLLs, then glitchlessly switches each clock's SRC back to
+ * aux with its AUXSRC field already pointed at the now-locked PLL. The
+ * previous "just never touch SRC" workaround likely wasn't hanging because
+ * clearing SRC is inherently fatal -- it was avoiding a glitch caused by
+ * reconfiguring AUXSRC out from under a live aux-selected mux, which is a
+ * real hazard this sequence sidesteps by only ever changing AUXSRC while
+ * that clock is parked on its non-aux input. See rp2350_gotchas memory note
+ * for the full debugging history. */
+/* RP2350's core voltage regulator (VREG) powers up at 1.10V, but every
+ * normal pico-sdk RP2350 build bumps it to (at least) 1.15V during boot --
+ * SYS_CLK_VREG_VOLTAGE_AUTO_ADJUST defaults to 1 for RP2350 specifically
+ * (unlike RP2040, where it's 0), regardless of target clock speed. Found by
+ * running TinyOS's own unmodified lcd.c inside a normal pico-sdk
+ * environment (where it worked perfectly) versus TinyOS's own boot (where
+ * the exact same driver produced a dead-silent panel) -- everything
+ * register-level about the LCD/GPIO setup was proven byte-identical between
+ * the two, so the remaining difference had to be something about the boot
+ * environment itself, not GPIO/SPI configuration. This was it: TinyOS never
+ * touched VREG at all, running the whole chip 0.05V under what RP2350
+ * apparently needs for fully reliable operation at this clock speed --
+ * enough margin for a simple slow GPIO toggle (the backlight blink
+ * checkpoints all worked fine) but not for the LCD's timing-sensitive
+ * bit-banged protocol. VREG lives in the POWMAN block on RP2350 (moved from
+ * a dedicated VREG_AND_CHIP_RESET block on RP2040) and requires a "password"
+ * (0x5afe0000) ORed into every write or the write is silently dropped --
+ * confirmed against pico-sdk's hardware_vreg/vreg.c and the RP2350 datasheet
+ * POWMAN register description. */
+#define POWMAN_BASE           0x40100000u
+#define POWMAN_VREG_CTRL      REG32(POWMAN_BASE + 0x04)
+#define POWMAN_VREG           REG32(POWMAN_BASE + 0x0c)
+#define POWMAN_PASSWORD_BITS  0x5afe0000u
+#define POWMAN_VREG_CTRL_UNLOCK_BIT (1u << 13)
+#define POWMAN_VREG_UPDATE_IN_PROGRESS (1u << 15)
+#define POWMAN_VREG_VSEL_LSB  4u
+#define POWMAN_VREG_VSEL_MASK (0x1fu << POWMAN_VREG_VSEL_LSB)
+#define VREG_VOLTAGE_1_15     0x0cu
+
+static void vreg_bump_voltage(void) {
+    POWMAN_VREG_CTRL |= (POWMAN_PASSWORD_BITS | POWMAN_VREG_CTRL_UNLOCK_BIT);
+    while (POWMAN_VREG & POWMAN_VREG_UPDATE_IN_PROGRESS);
+    POWMAN_VREG = (POWMAN_VREG & ~POWMAN_VREG_VSEL_MASK) | POWMAN_PASSWORD_BITS | (VREG_VOLTAGE_1_15 << POWMAN_VREG_VSEL_LSB);
+    while (POWMAN_VREG & POWMAN_VREG_UPDATE_IN_PROGRESS);
+}
+
 static void clocks_init(void) {
+    vreg_bump_voltage();
+    led_blink(23); /* checkpoint 23: VREG bumped to 1.15V */
+
+    CLK_SYS_RESUS_CTRL = 0; /* disable resus in case left enabled by a previous boot */
+
     xosc_init();
     led_blink(3); /* checkpoint: XOSC stable */
 
-    pll_init(PLL_SYS_BASE, RESET_BIT_PLL_SYS, 1, 125, 6, 2); /* 12MHz *125 /12 = 125MHz */
-    led_blink(4); /* checkpoint: PLL_SYS locked */
-    pll_init(PLL_USB_BASE, RESET_BIT_PLL_USB, 1, 100, 5, 5); /* 12MHz *100 /25 = 48MHz */
-    led_blink(5); /* checkpoint: PLL_USB locked */
+    /* Before touching the PLLs, switch clk_sys and clk_ref cleanly away from
+     * their aux inputs (both land on glitchless, always-running direct
+     * sources: clk_ref-direct for clk_sys, ROSC for clk_ref) so that PLL
+     * relocking below can't glitch a mux that's actively selecting aux. */
+    CLK_SYS_CTRL &= ~0x1u; /* SRC = clk_ref (0) */
+    while (!(CLK_SYS_SELECTED & 0x1u));
+    CLK_REF_CTRL &= ~0x3u; /* SRC = ROSC (0) */
+    while (!(CLK_REF_SELECTED & 0x1u));
+    led_blink(21); /* checkpoint 21: clk_sys/clk_ref parked on direct (non-aux) sources */
 
-    /* clk_sys speed-up WITHOUT the two-phase glitchless switch that hangs
-     * the chip (see the long comment above): CLK_SYS_CTRL's SRC bit stays
-     * at its default value (1 = aux) the entire time -- never touched -- we
-     * only repoint the AUXSRC sub-mux from its default (2 = ROSC) to 0
-     * (PLL_SYS) while that outer mux keeps selecting "aux". This is exactly
-     * the glitch pico-sdk's own comment warns about avoiding (swapping
-     * which source feeds an actively-selected mux), but tried here as a
-     * pragmatic bet: it's a one-time change happening before anything
-     * timing-sensitive is running, and it does NOT touch the specific bit
-     * (glitchless SRC) that reproducibly crashed the chip. */
-    CLK_SYS_CTRL = (CLK_SYS_CTRL & ~(0x7u << 5)); /* auxsrc = clksrc_pll_sys (0) */
+    pll_init(PLL_SYS_BASE, RESET_BIT_PLL_SYS, 1, 125, 6, 2); /* 12MHz *125 /12 = 125MHz */
+    led_blink(4); /* checkpoint 4: PLL_SYS locked */
+    pll_init(PLL_USB_BASE, RESET_BIT_PLL_USB, 1, 100, 5, 5); /* 12MHz *100 /25 = 48MHz */
+    led_blink(5); /* checkpoint 5: PLL_USB locked */
+
+    /* clk_ref: switch its glitchless mux directly to XOSC (still not aux, so
+     * this is a same-hazard-class-free transition between two of the mux's
+     * non-aux direct inputs). */
+    CLK_REF_CTRL = (CLK_REF_CTRL & ~0x3u) | 0x2u; /* SRC = XOSC (2) */
+    while (!(CLK_REF_SELECTED & (1u << 2)));
+
+    /* clk_sys: now safe to point AUXSRC at PLL_SYS (clk_sys is currently
+     * parked on clk_ref-direct, not aux, so this doesn't touch a live mux)
+     * and then glitchlessly switch SRC back to aux. */
+    CLK_SYS_CTRL = (CLK_SYS_CTRL & ~(0x7u << 5)); /* AUXSRC = clksrc_pll_sys (0) */
+    CLK_SYS_CTRL |= 0x1u; /* SRC = aux (1) */
+    while (!(CLK_SYS_SELECTED & (1u << 1)));
     CLK_SYS_DIV = (1u << 8);
-    led_blink(2); /* checkpoint: clk_sys auxsrc repointed at PLL_SYS */
+    led_blink(22); /* checkpoint 22: clk_sys running from PLL_SYS via aux */
+    check_khz(0x09u /* CLK_SYS */, 125000u, 5000u); /* 1 slow blink = ~125MHz confirmed, 10 rapid = still slow/wrong */
 
     CLK_USB_CTRL &= ~(1u << 11); /* disable before reconfiguring (non-glitchless clock) */
     CLK_USB_CTRL = (CLK_USB_CTRL & ~(0x7u << 5)); /* aux = clksrc_pll_usb */
     CLK_USB_DIV = (1u << 8);
     CLK_USB_CTRL |= (1u << 11); /* enable */
     led_blink(6); /* checkpoint: clk_usb switched to PLL_USB */
+    check_khz(0x0bu /* CLK_USB */, 48000u, 2000u); /* 1 slow blink = ~48MHz confirmed, 10 rapid = wrong (would explain enumeration failure) */
+
+    /* clk_adc: same non-glitchless bring-up as clk_usb above. Required for
+     * adc.c -- without it, adc_read_channel()'s busy-wait on ADC_CS_READY
+     * never returns (see adc.h). */
+    CLK_ADC_CTRL &= ~(1u << 11);
+    CLK_ADC_CTRL = (CLK_ADC_CTRL & ~(0x7u << 5)); /* aux = clksrc_pll_usb */
+    CLK_ADC_DIV = (1u << 8);
+    CLK_ADC_CTRL |= (1u << 11);
 }
 
 /* ================= USB controller =================
@@ -288,9 +352,20 @@ typedef struct {
 
 /* bDeviceClass/SubClass/Protocol = Misc/Common/IAD: signals that the actual
  * class (CDC-ACM) is described per-interface via the Interface Association
- * Descriptor below, not at the device level. */
+ * Descriptor below, not at the device level.
+ *
+ * idVendor/idProduct: was 0x0000/0x0001 -- confirmed via a side-by-side test
+ * against a known-good pico-sdk TinyUSB CDC example (which enumerated fine
+ * on this same board/cable/Mac port, ruling out hardware) that idVendor=0
+ * is likely why the host never enumerated this device at all: 0x0000 is not
+ * a valid assigned USB vendor ID, and host USB stacks (macOS's IOUSBHost
+ * included) are known to silently refuse to bind/enumerate a device that
+ * advertises it, with no visible error -- exactly the symptom seen (no
+ * /dev/cu.usbmodem*, no error dialog either). Changed to Raspberry Pi's
+ * actual registered VID (0x2E8A) plus an arbitrary-but-nonzero PID, matching
+ * pico-sdk's own stdio_usb_descriptors.c convention. */
 static const usb_device_descriptor_t device_descriptor = {
-    18, 0x01, 0x0200, 0xef, 0x02, 0x01, 64, 0x0000, 0x0001, 0x0100, 1, 2, 0, 1
+    18, 0x01, 0x0200, 0xef, 0x02, 0x01, 64, 0x2e8a, 0x000a, 0x0100, 1, 2, 0, 1
 };
 
 /* CDC-ACM: IAD + control interface (header/call-mgmt/ACM/union functional
@@ -519,7 +594,14 @@ static void handle_buff_status(void) {
     }
 }
 
+/* Diagnostic: does the host ever attempt a bus reset at all? This is the
+ * very first thing a host does once it notices a pulled-up device, so if
+ * this never flips true, the host isn't reacting to our presence at all
+ * (an even earlier-stage problem than descriptor content). */
+static volatile uint8_t saw_bus_reset;
+
 static void usb_bus_reset(void) {
+    saw_bus_reset = 1;
     dev_addr = 0;
     should_set_address = 0;
     USB_DEV_ADDR_CTRL = 0;
@@ -554,11 +636,6 @@ static void usb_device_init(void) {
     uint32_t off;
     for (off = 0; off < 4096; off += 4) REG32(USBCTRL_DPRAM_BASE + off) = 0;
 
-    /* Power the analog transceiver down, then back up via the plain SIE_CTRL
-     * write below. A RESETS-block reset alone doesn't reliably re-kick the
-     * analog PHY after a prior USB session (e.g. the BOOTSEL bootloader's). */
-    USB_SIE_CTRL |= (1u << 18); /* TRANSCEIVER_PD */
-
     USB_USB_MUXING = 0x9u; /* TO_PHY | SOFTCON */
     USB_USB_PWR = 0xcu;    /* VBUS_DETECT | VBUS_DETECT_OVERRIDE_EN */
     USB_MAIN_CTRL = 0x1u;  /* CONTROLLER_EN=1; also clears RP2350's PHY_ISO (bit2), which resets to 1 -- see file header comment */
@@ -570,6 +647,22 @@ static void usb_device_init(void) {
     USB_EP_CTRL_IN(2) = EP_CTRL_ENABLE | EP_CTRL_INTERRUPT_PER_BUFFER | (0x2u << EP_CTRL_BUFFER_TYPE_LSB) | EP2_IN_OFF;
 
     USB_SIE_CTRL |= (1u << 16); /* PULLUP_EN: present device to host */
+
+    /* Diagnostic: confirm the SIE itself thinks VBUS is present and the
+     * device is electrically connected, independent of whether the host
+     * ever actually enumerates it. 1 slow blink = bit set (good), 10 rapid
+     * = bit clear (bad) -- same convention as check_khz(). If CONNECTED
+     * never comes up, the bug is in this function's register sequence
+     * (muxing/pwr/pullup); if it does come up but the host still never
+     * enumerates, the bug is more likely in descriptor content/logic. */
+    {
+        volatile uint32_t settle;
+        for (settle = 0; settle < 2000000u; settle++);
+        led_blink((USB_SIE_STATUS & (1u << 0)) ? 1 : 10); /* checkpoint: VBUS_DETECTED */
+        led_pause_long();
+        led_blink((USB_SIE_STATUS & (1u << 16)) ? 1 : 10); /* checkpoint: CONNECTED */
+        led_pause_long();
+    }
 }
 
 /* ================= public API ================= */
@@ -578,28 +671,55 @@ void console_init(void) {
     led_init();
     led_blink(1); /* checkpoint 1: reached console_init, GPIO/pad bring-up done */
 
-    clocks_init(); /* checkpoints 2-6 fire inside here, see clocks_init() */
+    clocks_init(); /* checkpoints 21, 4, 5, 22 fire inside here, see clocks_init() */
     led_blink(7); /* checkpoint 7: clocks_init() returned */
+
+    /* From here on, mirror every diagnostic onto the LCD too (much higher
+     * bandwidth than counting blinks) -- see lcd.h. Row layout, top to
+     * bottom: measured clk_sys kHz, measured clk_usb kHz, USB_SIE_STATUS
+     * right after usb_device_init(), USB_INTS/USB_SIE_STATUS refreshed live
+     * every heartbeat tick while waiting, a loop-liveness counter, and a
+     * marker square (red = no bus reset seen yet, green = host reset the
+     * bus at least once, blue = host completed enumeration). */
+    lcd_init();
+    led_blink(15); /* checkpoint 15: lcd_init() returned (screen should be solid red now) */
+    lcd_hex32(0, 0, 4, measure_khz(0x09u), LCD_WHITE, LCD_BLACK);  /* clk_sys kHz */
+    lcd_hex32(0, 24, 4, measure_khz(0x0bu), LCD_WHITE, LCD_BLACK); /* clk_usb kHz */
 
     usb_device_init();
     led_blink(9); /* checkpoint 9: USB controller configured, pullup enabled */
+    lcd_hex32(0, 48, 4, USB_SIE_STATUS, LCD_YELLOW, LCD_BLACK);
+    lcd_marker(200, 48, 16, (USB_SIE_STATUS & (1u << 0)) ? LCD_GREEN : LCD_RED);  /* VBUS_DETECTED */
+    lcd_marker(200, 72, 16, (USB_SIE_STATUS & (1u << 16)) ? LCD_GREEN : LCD_RED); /* CONNECTED */
 
     /* Diagnostic heartbeat: toggle the LED roughly every ~1.5M loop
      * iterations while waiting for the host to finish enumeration, so a
      * hang here (host never enumerates) is visibly distinct -- a slow,
      * continuous blink -- from a hang earlier in console_init (which would
-     * leave the LED solid, since it'd never reach this loop at all). */
+     * leave the LED solid, since it'd never reach this loop at all).
+     *
+     * Once a bus reset is ever seen (saw_bus_reset -- the very first thing a
+     * host does once it notices a pulled-up device), switch to a much
+     * faster toggle (~150k iterations instead of 1.5M) so it's visually
+     * obvious whether the host ever reacted to our presence at all, versus
+     * never getting past the slow "waiting" cadence. */
     {
         uint32_t heartbeat_count = 0;
+        uint32_t loop_counter = 0;
         while (!configured) {
             usb_task();
-            if (++heartbeat_count >= 1500000u) {
+            if (++heartbeat_count >= (saw_bus_reset ? 150000u : 1500000u)) {
                 heartbeat_count = 0;
                 REG32(SIO_BASE + 0x028) ^= (1u << LED_PIN); /* GPIO_OUT_XOR */
+                lcd_hex32(0, 96, 4, ++loop_counter, LCD_GREEN, LCD_BLACK);
+                lcd_hex32(0, 120, 4, USB_INTS, LCD_YELLOW, LCD_BLACK);
+                lcd_hex32(0, 144, 4, USB_SIE_STATUS, LCD_YELLOW, LCD_BLACK);
+                lcd_marker(0, 168, 16, saw_bus_reset ? LCD_GREEN : LCD_RED);
             }
         }
     }
     led_blink(10); /* checkpoint 10: host completed enumeration */
+    lcd_marker(0, 168, 16, LCD_BLUE);
 
     arm_out(&USB_EP_BUF_CTRL_OUT(2), 64, &ep2_out_pid);
 }
