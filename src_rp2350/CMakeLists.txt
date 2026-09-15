@@ -5,9 +5,9 @@ pico_sdk_init()
 
 # Waveshare's own DEV_Config/LCD_Driver/LCD_GUI, proven working on this
 # exact board -- see resources/c/examples/lcd_test.c for the original
-# reference. Touch (LCD_Touch.c) and Bmp/fatfs/sdcard are still excluded;
-# LCD_GUI.c (text rendering, for lcd_console.c) is now included, using just
-# Font12 rather than the full font set.
+# reference. Touch (LCD_Touch.c) and Bmp are still excluded; LCD_GUI.c
+# (text rendering, for lcd_console.c) uses just Font12/Font24, not the
+# full font set.
 add_library(lcd
     lib/config/DEV_Config.c
     lib/lcd/LCD_Driver.c
@@ -18,15 +18,27 @@ add_library(lcd
 target_include_directories(lcd PUBLIC lib/config lib/lcd lib/font)
 target_link_libraries(lcd PUBLIC pico_stdlib hardware_spi)
 
-# 2040-parity modules: usb.c/flash.c/adc.c are pico-sdk-backed
-# reimplementations of src_2040's interfaces; fs.c/editor.c/script.c are
-# reused verbatim from src_2040 (pure logic, no register access).
+# microSD card (Waveshare's MMC_SD.c SPI driver) + FatFs -- this is now
+# TinyOS's user storage (see fs.c); the onboard flash stays reserved for
+# the system image itself. Same SPI1 bus as the LCD, separate chip-select.
+add_library(sdcard
+    lib/sdcard/MMC_SD.c
+    lib/fatfs/ff.c
+    lib/fatfs/diskio.c
+)
+target_include_directories(sdcard PUBLIC lib/sdcard lib/fatfs lib/config)
+target_link_libraries(sdcard PUBLIC pico_stdlib hardware_spi)
+
+# 2040-parity modules: usb.c/adc.c are pico-sdk-backed reimplementations of
+# src_2040's interfaces; editor.c/script.c are reused verbatim from
+# src_2040 (pure logic, no register access). fs.c is a from-scratch
+# SD/FatFs-backed implementation of src_2040's fs.h interface (not reused
+# from src_2040, which is flash-backed).
 add_executable(tinyos_rp2350
     main.c
     status.c
     lcd_console.c
     usb.c
-    flash.c
     fs.c
     editor.c
     script.c
@@ -36,4 +48,4 @@ target_include_directories(tinyos_rp2350 PRIVATE .)
 pico_enable_stdio_usb(tinyos_rp2350 1)
 pico_enable_stdio_uart(tinyos_rp2350 0)
 pico_add_extra_outputs(tinyos_rp2350)
-target_link_libraries(tinyos_rp2350 lcd pico_stdlib hardware_flash hardware_adc)
+target_link_libraries(tinyos_rp2350 lcd sdcard pico_stdlib hardware_adc)

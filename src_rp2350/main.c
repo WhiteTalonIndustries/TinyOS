@@ -3,7 +3,6 @@
 #include "status.h"
 #include "lcd_console.h"
 #include "usb.h"
-#include "flash.h"
 #include "fs.h"
 #include "editor.h"
 #include "script.h"
@@ -50,7 +49,7 @@ static void shell_execute(char *cmd_line) {
                "          mkdir <dir>, rm <name>, mv <old> <new>, nano <file>, run <file>,\n"
                "          format, exit\n");
     } else if (strcmp(cmd, "sysinfo") == 0) {
-        printf("OS: TinyOS RP2350 (pico-sdk build)\nCPU: Arm Cortex-M33 (RP2350B)\nRAM: 520 KB\nFlash: 16 MB (TinyFS)\n");
+        printf("OS: TinyOS RP2350 (pico-sdk build)\nCPU: Arm Cortex-M33 (RP2350B)\nRAM: 520 KB\nSystem flash: 16 MB\nUser storage: microSD (FAT)\n");
     } else if (strcmp(cmd, "hello") == 0) {
         printf("Hello from RP2350!\n");
     } else if (strcmp(cmd, "clear") == 0) {
@@ -145,7 +144,6 @@ int main(void) {
     lcd_console_init();
     lcd_console_register_stdio();
 
-    flash_init();
     fs_init();
     tinyos_adc_init();
 
