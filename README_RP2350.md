@@ -91,9 +91,24 @@ and pico-sdk's own `src/boards/include/boards/pimoroni_pico_plus2_w_rp2350.h`.
   directory) rather than a hardcoded root. **Confirmed working on
   hardware**: `mkdir`, `cd` into it, `pwd` reflects the new path, `cd ..`
   back out.
-- `editor.c`, `script.c` — copied verbatim from `src_2040` (pure logic, no
-  register/storage access — work unchanged against the new SD-backed
+- `script.c` — copied verbatim from `src_2040` (pure logic, no
+  register/storage access — works unchanged against the new SD-backed
   `fs.c` through the same `fs.h` interface).
+- `editor.c` — started as a verbatim copy of `src_2040/editor.c`, now
+  **diverged**: the original called a full `redraw()` (`\033[2J\033[H`
+  clear + reprint of the whole buffer) after *every* keystroke, which was
+  visibly slow/flickery here (USB CDC + the LCD mirror both in the output
+  path, unlike RP2040's plain UART). Fixed with a `need_redraw` flag: the
+  two hot paths -- appending a character or backspacing, both at the true
+  end of the buffer, which is ordinary typing -- just echo the
+  character/`"\b \b"` locally instead of a full redraw; everything else
+  (arrow-key navigation, mid-buffer edits, newlines, save) still does the
+  full redraw, since correctly reflowing text after those without one is
+  real complexity this "nano-lite" doesn't need. `src_2040/editor.c` is
+  untouched (per this port's own rule that RP2040 stays bare-metal and
+  unaffected). **Confirmed on hardware**: typing a full sentence now
+  produces exactly one full redraw (on the first keystroke, to flip the
+  header's `[modified]` tag) instead of one per character.
 - `adc.c` — `hardware_adc`-backed, using `ADC_BASE_PIN`/`NUM_ADC_CHANNELS`
   (which resolve correctly to GPIO40-47 + temp sensor *only* when built
   against the correct board, see above). Named `tinyos_adc_init()`, not

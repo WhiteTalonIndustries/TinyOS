@@ -50,15 +50,22 @@ void nano_edit(const char *filename) {
     int dirty = 0;
     int running = 1;
     int had_cr = 0;
+    int need_redraw = 1;
     int n = fs_read(filename, buf, EDIT_BUF_SIZE);
 
     len = (n < 0) ? 0 : (uint32_t)n;
     cursor = len;
 
-    redraw(filename, dirty);
-
     while (running) {
-        char c = console_getc();
+        char c;
+        int was_at_end;
+
+        if (need_redraw) {
+            redraw(filename, dirty);
+            need_redraw = 0;
+        }
+
+        c = console_getc();
 
         if (had_cr && c == '\n') {
             had_cr = 0;
@@ -95,11 +102,13 @@ void nano_edit(const char *filename) {
                     }
                 }
             }
+            need_redraw = 1;
         } else if (c == 0x0f) { /* Ctrl+O: write-out (matches real nano; avoids
                                   * Ctrl+S, which terminals treat as XOFF and
                                   * eat before it ever reaches the device) */
             buf[len] = '\0';
             if (fs_write(filename, buf) == 0) dirty = 0;
+            need_redraw = 1; /* header's [modified] tag may have just changed */
         } else if (c == 0x18) { /* Ctrl+X */
             running = 0;
             continue;
@@ -113,26 +122,48 @@ void nano_edit(const char *filename) {
                 dirty = 1;
             }
             had_cr = 1;
+            need_redraw = 1; /* line count changed -- everything below reflows */
         } else if (c == 0x7f || c == 0x08) { /* backspace */
             if (cursor > 0) {
                 uint32_t i;
+                was_at_end = (cursor == len && buf[cursor - 1] != '\n');
                 for (i = cursor - 1; i < len - 1; i++) buf[i] = buf[i + 1];
                 len--;
                 cursor--;
-                dirty = 1;
+                if (was_at_end) {
+                    /* Deleting the last char of the last line: erase it in
+                     * place (same trick main.c's own prompt input uses)
+                     * instead of a full clear+reprint -- avoids a visible
+                     * flicker/lag on every keystroke, especially with the
+                     * LCD mirror and USB CDC both in the output path. */
+                    console_puts("\b \b");
+                    if (!dirty) { dirty = 1; need_redraw = 1; }
+                } else {
+                    dirty = 1;
+                    need_redraw = 1;
+                }
             }
         } else if (c >= 0x20 && c < 0x7f) { /* printable */
             if (len < EDIT_BUF_SIZE - 1) {
                 uint32_t i;
+                was_at_end = (cursor == len);
                 for (i = len; i > cursor; i--) buf[i] = buf[i - 1];
                 buf[cursor] = c;
                 len++;
                 cursor++;
-                dirty = 1;
+                if (was_at_end) {
+                    /* Fast path: appending at the true end of the buffer
+                     * never reflows earlier lines, so just echo the
+                     * character instead of a full redraw() -- see the
+                     * backspace case above for why this matters. */
+                    console_putc(c);
+                    if (!dirty) { dirty = 1; need_redraw = 1; }
+                } else {
+                    dirty = 1;
+                    need_redraw = 1;
+                }
             }
         }
-
-        redraw(filename, dirty);
     }
 
     console_puts("\033[2J\033[H");
