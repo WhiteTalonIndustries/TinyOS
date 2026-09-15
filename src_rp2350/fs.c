@@ -42,7 +42,7 @@ void fs_list(void (*cb)(const char *name, int type, uint32_t length)) {
     FILINFO info;
 
     if (!mounted) return;
-    if (f_opendir(&dir, "0:/") != FR_OK) return;
+    if (f_opendir(&dir, ".") != FR_OK) return; /* "." = current directory, see fs_chdir() */
 
     while (f_readdir(&dir, &info) == FR_OK && info.fname[0] != '\0') {
         int type = (info.fattrib & AM_DIR) ? FS_TYPE_DIR : FS_TYPE_FILE;
@@ -97,6 +97,16 @@ int fs_rename(const char *old_name, const char *new_name) {
     if (!mounted) return -1;
     if (new_name[0] == '\0' || strlen(new_name) >= FS_NAME_LEN) return -1;
     return (f_rename(old_name, new_name) == FR_OK) ? 0 : -1;
+}
+
+int fs_chdir(const char *path) {
+    if (!mounted) return -1;
+    return (f_chdir(path) == FR_OK) ? 0 : -1;
+}
+
+int fs_getcwd(char *buf, uint32_t bufsize) {
+    if (!mounted) return -1;
+    return (f_getcwd(buf, (UINT)bufsize) == FR_OK) ? 0 : -1;
 }
 
 int fs_usb_mount(void) {

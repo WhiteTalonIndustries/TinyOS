@@ -12,6 +12,11 @@
  * WiFi bring-up and leaves wifi_is_connected() false. */
 void wifi_init(void);
 
+/* Tears the WiFi chip back down (cyw43_arch_deinit()) -- safe to call
+ * even if wifi_init() never connected. A later `wifi connect` re-inits
+ * cleanly from scratch. */
+void wifi_disconnect(void);
+
 bool wifi_is_connected(void);
 
 /* Pumps the cyw43/lwIP poll loop -- must be called regularly (this is

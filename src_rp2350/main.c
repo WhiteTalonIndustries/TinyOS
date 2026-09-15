@@ -4,6 +4,7 @@
 #include "lcd_console.h"
 #include "usb.h"
 #include "wifi.h"
+#include "net.h"
 #include "fs.h"
 #include "editor.h"
 #include "script.h"
@@ -56,7 +57,8 @@ static void shell_execute(char *cmd_line) {
     if (strcmp(cmd, "help") == 0) {
         printf("Commands: help, sysinfo, clear, hello, ls, cat <file>, write <file> <text>,\n"
                "          mkdir <dir>, rm <name>, mv <old> <new>, nano <file>, run <file>,\n"
-               "          format, mount, unmount, wifi connect, ifconfig, exit\n");
+               "          cd <dir>, pwd, format, mount, unmount, wifi connect,\n"
+               "          wifi disconnect, ifconfig, ping <host>, browser <host> [path], exit\n");
     } else if (strcmp(cmd, "sysinfo") == 0) {
         printf("OS: TinyOS RP2350 (pico-sdk build)\nCPU: Arm Cortex-M33 (RP2350B)\nRAM: 520 KB\nSystem flash: 16 MB\nUser storage: microSD (FAT)\n");
     } else if (strcmp(cmd, "hello") == 0) {
@@ -88,6 +90,14 @@ static void shell_execute(char *cmd_line) {
             if (fs_write(arg1, arg2) != 0)
                 printf("write: failed (name too long, file table full, or out of space)\n");
         }
+    } else if (strcmp(cmd, "cd") == 0) {
+        arg1 = next_token(&cursor);
+        if (!arg1) arg1 = "/";
+        if (fs_chdir(arg1) != 0) printf("cd: no such directory: %s\n", arg1);
+    } else if (strcmp(cmd, "pwd") == 0) {
+        char cwd[128];
+        if (fs_getcwd(cwd, sizeof(cwd)) == 0) printf("%s\n", cwd);
+        else printf("pwd: failed\n");
     } else if (strcmp(cmd, "mkdir") == 0) {
         arg1 = next_token(&cursor);
         if (!arg1) printf("usage: mkdir <name>\n");
@@ -138,13 +148,27 @@ static void shell_execute(char *cmd_line) {
         }
     } else if (strcmp(cmd, "wifi") == 0) {
         arg1 = next_token(&cursor);
-        if (!arg1 || strcmp(arg1, "connect") != 0) {
-            printf("usage: wifi connect\n");
-        } else {
+        if (arg1 && strcmp(arg1, "connect") == 0) {
             wifi_init();
+        } else if (arg1 && strcmp(arg1, "disconnect") == 0) {
+            wifi_disconnect();
+        } else {
+            printf("usage: wifi connect | wifi disconnect\n");
         }
     } else if (strcmp(cmd, "ifconfig") == 0) {
         wifi_print_status();
+    } else if (strcmp(cmd, "ping") == 0) {
+        arg1 = next_token(&cursor);
+        if (!arg1) printf("usage: ping <host>\n");
+        else net_ping(arg1);
+    } else if (strcmp(cmd, "browser") == 0) {
+        arg1 = next_token(&cursor);
+        if (!arg1) {
+            printf("usage: browser <host> [path]\n");
+        } else {
+            arg2 = next_token(&cursor);
+            net_get(arg1, arg2);
+        }
     } else if (strcmp(cmd, "exit") == 0) {
         printf("Closing console session...\n");
         console_disconnect();

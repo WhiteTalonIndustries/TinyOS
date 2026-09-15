@@ -85,7 +85,12 @@ and pico-sdk's own `src/boards/include/boards/pimoroni_pico_plus2_w_rp2350.h`.
   `ffconf.h` so `fs_format()` can do a real low-level SD format;
   `fatfs_storage.c`, Waveshare's bitmap-display-specific wrapper, is not
   used). Filenames are 8.3 short-name only (`_USE_LFN 0`), so they show up
-  uppercase (`HELLO.TXT`, not `hello.txt`).
+  uppercase (`HELLO.TXT`, not `hello.txt`). `_FS_RPATH` is enabled (2) so
+  `cd`/`pwd` (`fs_chdir()`/`fs_getcwd()`) are FatFs's own relative-path
+  support, not hand-rolled path math — `ls` lists `.` (the current
+  directory) rather than a hardcoded root. **Confirmed working on
+  hardware**: `mkdir`, `cd` into it, `pwd` reflects the new path, `cd ..`
+  back out.
 - `editor.c`, `script.c` — copied verbatim from `src_2040` (pure logic, no
   register/storage access — work unchanged against the new SD-backed
   `fs.c` through the same `fs.h` interface).
@@ -94,9 +99,29 @@ and pico-sdk's own `src/boards/include/boards/pimoroni_pico_plus2_w_rp2350.h`.
   against the correct board, see above). Named `tinyos_adc_init()`, not
   `adc_init()`, since pico-sdk's own `hardware/adc.h` already declares a
   function with that exact name.
-- `main.c` — full `src_2040`-parity shell: `help`, `sysinfo`, `hello`,
-  `clear`, `ls`, `cat`, `write`, `mkdir`, `rm`, `mv`, `nano`, `run`,
-  `format`, `mount`, `unmount`, `exit`.
+- `wifi.c`/`wifi.h` — CYW43439 WiFi + lwIP (`pico_cyw43_arch_lwip_poll`,
+  `NO_SYS=1`, polled from `usb.c`'s idle loops alongside `tud_task()` --
+  see `lwipopts.h`). Credentials come from `WIFI.CFG` on the SD card (two
+  lines: SSID, then password), never baked into source or committed.
+  **Stays off until explicitly requested** (`wifi connect`) -- calling
+  `cyw43_arch_init()` unconditionally at boot caused a hard panic on this
+  board; root cause not isolated, but gating it behind a shell command
+  run after the rest of the system is already up is confirmed stable.
+  `ifconfig` reports SSID + IP. `wifi disconnect` tears the chip back down
+  (`cyw43_arch_deinit()`); a later `wifi connect` re-inits cleanly.
+  **Confirmed working on hardware**: joins a real network and gets a DHCP
+  lease.
+- `net.c`/`net.h` — `ping <host>` (raw ICMP echo via lwIP's `raw` API) and
+  `browser <host> [path]` ("super limited browser": plain HTTP/1.0 GET
+  over lwIP's raw TCP API, no HTTPS/redirects/HTML rendering, just dumps
+  the raw response to the console). Both accept a hostname (resolved via
+  `dns_gethostbyname()`, polled synchronously -- there's no callback-based
+  concurrency here, TinyOS's shell is single-threaded) or a dotted IP.
+- `main.c` — full `src_2040`-parity shell plus `cd`/`pwd`/`wifi
+  connect`/`wifi disconnect`/`ifconfig`/`ping`/`browser`: `help`,
+  `sysinfo`, `hello`, `clear`, `ls`, `cat`, `write`, `mkdir`, `rm`, `mv`,
+  `nano`, `run`, `cd`, `pwd`, `format`, `mount`, `unmount`, `wifi connect`,
+  `wifi disconnect`, `ifconfig`, `ping`, `browser`, `exit`.
 
 **Hardware-confirmed working, end to end, over a real USB connection, on a
 real 16GB microSD card**: enumeration, banner, `sysinfo`, `format` (real
@@ -118,20 +143,14 @@ cd src_rp2350
 mkdir -p build && cd build
 cmake -DPICO_BOARD=pimoroni_pico_plus2_w_rp2350 -DPICO_SDK_PATH=$PICO_SDK_PATH ..
 cmake --build . --target tinyos_rp2350 -j8
-# Board already running a pico-sdk USB build? No need to touch BOOTSEL:
-picotool reboot -f -u
-# Otherwise: hold BOOTSEL, plug in USB, release -- then:
+# Hold BOOTSEL, plug in USB (or press reset with BOOTSEL held), release -- then:
 picotool load tinyos_rp2350.uf2 -v -f -x
 ```
 
 ### Next steps
 
-1. SPI1 + microSD driver is the actual goal of this whole port — Waveshare's
-   own `lib/sdcard`/`lib/fatfs` (in `resources/c/`) are the obvious starting
-   point. The SD slot can also double as a persistence mechanism for
-   debugging (see above) once it's up.
-2. Once SD works, a real filesystem (FatFs) could replace/augment the
-   current flat TinyFS layer if useful.
+`ping` and `browser` haven't been exercised against a real remote host
+yet (only built/flashed) -- worth confirming on hardware.
 
 ### What's in `resources/c/` and `scratch/`
 

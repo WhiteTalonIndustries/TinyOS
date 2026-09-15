@@ -10,6 +10,7 @@
 #define CONNECT_TIMEOUT_MS 15000
 
 static bool connected;
+static bool chip_inited;
 static char ssid_buf[64];
 
 static int read_wifi_cfg(char *ssid_out, int ssid_cap, char *pass_out, int pass_cap) {
@@ -45,15 +46,22 @@ void wifi_init(void) {
     char pass_buf[64];
     int rc;
 
-    connected = false;
+    if (connected) {
+        printf("wifi: already connected to \"%s\"\n", ssid_buf);
+        return;
+    }
+
     if (read_wifi_cfg(ssid_buf, sizeof(ssid_buf), pass_buf, sizeof(pass_buf)) != 0) {
         printf("wifi: no WIFI.CFG on the SD card (expected 2 lines: SSID then password) -- skipping\n");
         return;
     }
 
-    if (cyw43_arch_init()) {
-        printf("wifi: cyw43_arch_init failed\n");
-        return;
+    if (!chip_inited) {
+        if (cyw43_arch_init()) {
+            printf("wifi: cyw43_arch_init failed\n");
+            return;
+        }
+        chip_inited = true;
     }
     cyw43_arch_enable_sta_mode();
 
@@ -66,6 +74,17 @@ void wifi_init(void) {
 
     connected = true;
     printf("wifi: connected\n");
+}
+
+void wifi_disconnect(void) {
+    if (!chip_inited) {
+        printf("wifi: not connected\n");
+        return;
+    }
+    cyw43_arch_deinit();
+    chip_inited = false;
+    connected = false;
+    printf("wifi: disconnected\n");
 }
 
 bool wifi_is_connected(void) {

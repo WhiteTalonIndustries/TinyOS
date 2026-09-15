@@ -54,6 +54,7 @@ add_executable(tinyos_rp2350
     script.c
     adc.c
     wifi.c
+    net.c
 )
 target_include_directories(tinyos_rp2350 PRIVATE .)
 pico_enable_stdio_uart(tinyos_rp2350 0)

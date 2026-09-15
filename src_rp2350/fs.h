@@ -39,6 +39,16 @@ int fs_mkdir(const char *name);
 int fs_remove(const char *name);
 int fs_rename(const char *old_name, const char *new_name);
 
+/* Changes the current directory (relative or absolute, "..", "/" all
+ * work -- backed by FatFs's own f_chdir()). Every other fs_* call above
+ * that takes a bare filename resolves it against this directory. Returns
+ * 0 on success, -1 if the path doesn't exist / isn't a directory. */
+int fs_chdir(const char *path);
+
+/* Copies the current directory path into buf (FatFs's f_getcwd()).
+ * Returns 0 on success, -1 on error (e.g. buf too small). */
+int fs_getcwd(char *buf, uint32_t bufsize);
+
 /* Hands the SD card to the USB host as a raw block device (msc_disk.c),
  * unmounting TinyOS's own FatFs first so only one side ever touches the
  * card at a time. Returns 0 on success. */
