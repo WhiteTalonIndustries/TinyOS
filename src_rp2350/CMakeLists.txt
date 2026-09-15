@@ -7,12 +7,13 @@ pico_sdk_init()
 # exact board -- see resources/c/examples/lcd_test.c for the original
 # reference. Touch (LCD_Touch.c) and Bmp/fatfs/sdcard are still excluded;
 # LCD_GUI.c (text rendering, for lcd_console.c) is now included, using just
-# Font16 rather than the full font set.
+# Font12 rather than the full font set.
 add_library(lcd
     lib/config/DEV_Config.c
     lib/lcd/LCD_Driver.c
     lib/lcd/LCD_GUI.c
-    lib/font/font8.c
+    lib/font/font12.c
+    lib/font/font24.c
 )
 target_include_directories(lcd PUBLIC lib/config lib/lcd lib/font)
 target_link_libraries(lcd PUBLIC pico_stdlib hardware_spi)

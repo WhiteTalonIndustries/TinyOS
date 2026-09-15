@@ -4,8 +4,9 @@
 #include "fonts.h"
 #include "pico/stdio/driver.h"
 
-/* Simple fixed-grid scrolling terminal on the LCD, using Font8 (see
- * fonts.h) for more characters per line/more lines than Font16. main.c
+/* Simple fixed-grid scrolling terminal on the LCD, using Font12 (see
+ * fonts.h) -- a middle ground between Font8 (denser but harder to read)
+ * and Font16 (very readable but few chars per line). main.c
  * inits the panel rotated 90deg clockwise (U2D_R2L), which swaps the
  * usable area to 320(w)x240(h) -- LCD_2_8_HEIGHT x LCD_2_8_WIDTH, not the
  * other way around; LCD_Driver.c's LCD_SetGramScanWay() does this same
@@ -19,7 +20,7 @@
 #define RGB565_BLACK 0x0000
 #define RGB565_WHITE 0xffff
 
-static const sFONT *font = &Font8;
+static const sFONT *font = &Font12;
 static int cols, rows;
 static int cur_col, cur_row;
 
@@ -31,8 +32,8 @@ static int cur_col, cur_row;
 static enum { ANSI_NONE, ANSI_ESC, ANSI_CSI } ansi_state = ANSI_NONE;
 
 void lcd_console_init(void) {
-    cols = LCD_2_8_HEIGHT / Font8.Width;  /* 320px wide in the rotated (landscape) orientation */
-    rows = LCD_2_8_WIDTH / Font8.Height;  /* 240px tall in the rotated (landscape) orientation */
+    cols = LCD_2_8_HEIGHT / Font12.Width;  /* 320px wide in the rotated (landscape) orientation */
+    rows = LCD_2_8_WIDTH / Font12.Height;  /* 240px tall in the rotated (landscape) orientation */
     cur_col = 0;
     cur_row = 0;
     LCD_Clear(TERM_BG);
