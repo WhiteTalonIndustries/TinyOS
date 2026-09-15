@@ -29,20 +29,3 @@ pico_enable_stdio_uart(main 0)
 pico_add_extra_outputs(main)
 
 target_link_libraries(main examples lcd font config pico_stdlib hardware_spi fatfs)
-
-# Diagnostic-only: dumps register state after a known-working LCD_Init(),
-# to compare against TinyOS's own bare-metal driver. See regdump.c.
-add_executable(regdump regdump.c)
-pico_enable_stdio_usb(regdump 1)
-pico_enable_stdio_uart(regdump 0)
-pico_add_extra_outputs(regdump)
-target_link_libraries(regdump lcd font config pico_stdlib hardware_spi fatfs)
-
-# Diagnostic-only: runs TinyOS's own bare-metal lcd.c (copied verbatim as
-# tinyos_lcd.c/.h) inside a normal pico-sdk environment, to isolate whether
-# the bug is in lcd.c itself or in TinyOS's boot/clock environment.
-add_executable(tinyos_lcd_test tinyos_lcd_test.c tinyos_lcd.c tinyos_clocks_override.c)
-pico_enable_stdio_usb(tinyos_lcd_test 1)
-pico_enable_stdio_uart(tinyos_lcd_test 0)
-pico_add_extra_outputs(tinyos_lcd_test)
-target_link_libraries(tinyos_lcd_test pico_stdlib hardware_clocks hardware_pll hardware_xosc hardware_vreg hardware_resets)

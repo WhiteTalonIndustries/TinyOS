@@ -2,3 +2,11 @@
 src_rp2350/build/
 resources/c/build_pico2/
 resources/c/build/
+
+# Scratch dir for throwaway test/debugging harnesses -- not part of any
+# real build, not meant to be kept long-term. Specific files here may still
+# get git-mv'd in and tracked deliberately when they have lasting reference
+# value (see scratch/rp2350_bare_metal_debug/), but new throwaway files
+# should NOT be added.
+/scratch/*
+!/scratch/rp2350_bare_metal_debug/
