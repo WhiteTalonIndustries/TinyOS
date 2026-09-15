@@ -11,6 +11,7 @@
 #include "lwip/prot/icmp.h"
 #include <stdio.h>
 #include <string.h>
+#include <ctype.h>
 
 /* Single-shot ping and a raw-HTTP GET ("browser"), both built directly on
  * lwIP's callback-based raw API (this is NO_SYS=1 lwIP -- see
@@ -197,6 +198,186 @@ static err_t http_connected_cb(void *arg, struct tcp_pcb *tpcb, err_t err) {
     return ERR_OK;
 }
 
+/* ---------------- lynx-style HTML rendering ---------------- */
+
+#define MAX_LINKS   24
+#define LINK_URL_LEN 128
+#define TAGBUF_SIZE 256
+#define TITLEBUF_SIZE 128
+
+static char link_urls[MAX_LINKS][LINK_URL_LEN];
+static int link_count;
+
+static int is_block_tag(const char *name) {
+    static const char *tags[] = {
+        "p", "div", "br", "li", "ul", "ol", "h1", "h2", "h3", "h4", "h5", "h6",
+        "tr", "table", "hr", "blockquote", "header", "footer", "section", "article", NULL
+    };
+    int i;
+    for (i = 0; tags[i]; i++) {
+        if (strcmp(name, tags[i]) == 0) return 1;
+    }
+    return 0;
+}
+
+/* Strips tags, decodes a handful of common entities, and prints numbered
+ * "[n]" markers for links with a Lynx-style "References" list of URLs at
+ * the end -- not a real HTML parser (no nesting/malformed-markup
+ * recovery, only the entities/tags real pages actually use), but enough
+ * to make ordinary pages legible instead of a wall of markup. */
+static void render_html(const char *html, uint32_t len) {
+    uint32_t i = 0;
+    char skip_tag[16];
+    char tagname[16];
+    char tagbuf[TAGBUF_SIZE];
+    char title[TITLEBUF_SIZE];
+    uint32_t title_len = 0;
+    int in_title = 0;
+    int at_line_start = 1;
+    int in_anchor = 0;
+    char anchor_url[LINK_URL_LEN];
+
+    skip_tag[0] = '\0';
+    anchor_url[0] = '\0';
+    link_count = 0;
+
+    while (i < len) {
+        char c = html[i];
+
+        if (c == '<') {
+            uint32_t j = i + 1;
+            uint32_t tlen = 0;
+            int closing = 0;
+
+            if (j < len && html[j] == '/') { closing = 1; j++; }
+            while (j < len && html[j] != '>' && tlen < TAGBUF_SIZE - 1) tagbuf[tlen++] = html[j++];
+            tagbuf[tlen] = '\0';
+            if (j < len) j++;
+
+            {
+                uint32_t k = 0;
+                while (k < tlen && k < 15 && tagbuf[k] != ' ' && tagbuf[k] != '\t' &&
+                       tagbuf[k] != '\n' && tagbuf[k] != '/') {
+                    tagname[k] = (char)tolower((unsigned char)tagbuf[k]);
+                    k++;
+                }
+                tagname[k] = '\0';
+            }
+
+            if (skip_tag[0]) {
+                if (closing && strcmp(tagname, skip_tag) == 0) skip_tag[0] = '\0';
+                i = j;
+                continue;
+            }
+
+            if (!closing && (strcmp(tagname, "script") == 0 || strcmp(tagname, "style") == 0 ||
+                              strcmp(tagname, "head") == 0)) {
+                strncpy(skip_tag, tagname, sizeof(skip_tag) - 1);
+                skip_tag[sizeof(skip_tag) - 1] = '\0';
+                i = j;
+                continue;
+            }
+
+            if (strcmp(tagname, "title") == 0) {
+                if (closing) {
+                    title[title_len] = '\0';
+                    if (title_len > 0) {
+                        uint32_t x;
+                        printf("%s\n", title);
+                        for (x = 0; x < title_len && x < 78; x++) putchar('=');
+                        printf("\n\n");
+                    }
+                    in_title = 0;
+                } else {
+                    in_title = 1;
+                    title_len = 0;
+                }
+                i = j;
+                continue;
+            }
+
+            if (strcmp(tagname, "a") == 0) {
+                if (!closing) {
+                    const char *p = strstr(tagbuf, "href=");
+                    anchor_url[0] = '\0';
+                    if (p) {
+                        p += 5;
+                        if (*p == '"' || *p == '\'') {
+                            char q = *p++;
+                            uint32_t k = 0;
+                            while (*p && *p != q && k < sizeof(anchor_url) - 1) anchor_url[k++] = *p++;
+                            anchor_url[k] = '\0';
+                        }
+                    }
+                    in_anchor = anchor_url[0] != '\0';
+                } else {
+                    if (in_anchor && link_count < MAX_LINKS) {
+                        strncpy(link_urls[link_count], anchor_url, LINK_URL_LEN - 1);
+                        link_urls[link_count][LINK_URL_LEN - 1] = '\0';
+                        link_count++;
+                        printf("[%d]", link_count);
+                        at_line_start = 0;
+                    }
+                    in_anchor = 0;
+                }
+                i = j;
+                continue;
+            }
+
+            if (is_block_tag(tagname)) {
+                if (!at_line_start) {
+                    putchar('\n');
+                    at_line_start = 1;
+                }
+                if (!closing && strcmp(tagname, "li") == 0) {
+                    printf("  * ");
+                    at_line_start = 0;
+                }
+            }
+
+            i = j;
+            continue;
+        }
+
+        if (skip_tag[0]) {
+            i++;
+            continue;
+        }
+
+        if (c == '&') {
+            if (strncmp(&html[i], "&amp;", 5) == 0) { c = '&'; i += 5; }
+            else if (strncmp(&html[i], "&lt;", 4) == 0) { c = '<'; i += 4; }
+            else if (strncmp(&html[i], "&gt;", 4) == 0) { c = '>'; i += 4; }
+            else if (strncmp(&html[i], "&quot;", 6) == 0) { c = '"'; i += 6; }
+            else if (strncmp(&html[i], "&#39;", 5) == 0) { c = '\''; i += 5; }
+            else if (strncmp(&html[i], "&nbsp;", 6) == 0) { c = ' '; i += 6; }
+            else { i++; }
+        } else {
+            i++;
+        }
+
+        if (in_title) {
+            if (title_len < TITLEBUF_SIZE - 1) title[title_len++] = c;
+            continue;
+        }
+
+        if (c == '\n' || c == '\r' || c == '\t') c = ' ';
+        if (c == ' ' && at_line_start) continue;
+        putchar(c);
+        at_line_start = (c == '\n');
+    }
+
+    if (!at_line_start) putchar('\n');
+
+    if (link_count > 0) {
+        int n;
+        printf("\nReferences\n");
+        for (n = 0; n < link_count; n++) {
+            printf("  %d. %s\n", n + 1, link_urls[n]);
+        }
+    }
+}
+
 void net_get(const char *host, const char *path) {
     ip_addr_t target;
     struct tcp_pcb *pcb;
@@ -243,6 +424,15 @@ void net_get(const char *host, const char *path) {
         return;
     }
 
-    console_write(http_buf, http_len);
-    printf("\n");
+    http_buf[http_len] = '\0'; /* HTTP_BUF_SIZE always leaves 1 byte of slack for this */
+    {
+        char *body = strstr(http_buf, "\r\n\r\n");
+        char *status_end = strstr(http_buf, "\r\n");
+        if (status_end) *status_end = '\0';
+        printf("%s\n\n", http_buf);
+        if (body) {
+            body += 4;
+            render_html(body, (uint32_t)(http_len - (uint32_t)(body - http_buf)));
+        }
+    }
 }

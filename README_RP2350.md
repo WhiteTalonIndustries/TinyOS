@@ -113,10 +113,19 @@ and pico-sdk's own `src/boards/include/boards/pimoroni_pico_plus2_w_rp2350.h`.
   lease.
 - `net.c`/`net.h` — `ping <host>` (raw ICMP echo via lwIP's `raw` API) and
   `browser <host> [path]` ("super limited browser": plain HTTP/1.0 GET
-  over lwIP's raw TCP API, no HTTPS/redirects/HTML rendering, just dumps
-  the raw response to the console). Both accept a hostname (resolved via
-  `dns_gethostbyname()`, polled synchronously -- there's no callback-based
-  concurrency here, TinyOS's shell is single-threaded) or a dotted IP.
+  over lwIP's raw TCP API, with a small Lynx-style HTML-to-text renderer
+  -- strips tags, decodes the common entities, numbers links `[n]` inline
+  with a "References" list of URLs at the end, like real Lynx). Both
+  accept a hostname (resolved via `dns_gethostbyname()`, polled
+  synchronously -- there's no callback-based concurrency here, TinyOS's
+  shell is single-threaded) or a dotted IP. **Deliberately stays plain
+  HTTP, no redirects, no TLS** -- HTTPS would need mbedtls + lwIP's
+  `altcp_tls` layer wired in, real RAM/flash cost, against the project's
+  "tiny" philosophy for this feature. Practical consequence: sites that
+  redirect to HTTPS (Wikipedia, most modern sites) return a bare `301` and
+  stop there; plain-HTTP retro/text sites (confirmed working: 68k.news,
+  full Lynx-style output with working link references) are what this is
+  actually for.
 - `main.c` — full `src_2040`-parity shell plus `cd`/`pwd`/`wifi
   connect`/`wifi disconnect`/`ifconfig`/`ping`/`browser`: `help`,
   `sysinfo`, `hello`, `clear`, `ls`, `cat`, `write`, `mkdir`, `rm`, `mv`,
@@ -147,10 +156,10 @@ cmake --build . --target tinyos_rp2350 -j8
 picotool load tinyos_rp2350.uf2 -v -f -x
 ```
 
-### Next steps
-
-`ping` and `browser` haven't been exercised against a real remote host
-yet (only built/flashed) -- worth confirming on hardware.
+**`ping`/`browser` hardware-confirmed**: `ping 8.8.8.8` round-trips
+successfully; `browser 68k.news /` renders a full Lynx-style page (title,
+numbered links, References list); `browser en.wikipedia.org ...` returns
+a bare `301` as expected (HTTPS redirect, not followed -- see above).
 
 ### What's in `resources/c/` and `scratch/`
 
