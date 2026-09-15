@@ -4,18 +4,22 @@
 #include "fonts.h"
 #include "pico/stdio/driver.h"
 
-/* Simple fixed-grid scrolling terminal on the LCD, using Font16 (see
- * fonts.h). This board's panel is 240x320 in the default orientation
- * (LCD_2_8_WIDTH/HEIGHT). No real scrolling (yet) -- when the grid fills,
- * the screen clears and starts again at the top-left; good enough as a
- * first cut for "the display should show the shell". */
+/* Simple fixed-grid scrolling terminal on the LCD, using Font8 (see
+ * fonts.h) for more characters per line/more lines than Font16. main.c
+ * inits the panel rotated 90deg clockwise (U2D_R2L), which swaps the
+ * usable area to 320(w)x240(h) -- LCD_2_8_HEIGHT x LCD_2_8_WIDTH, not the
+ * other way around; LCD_Driver.c's LCD_SetGramScanWay() does this same
+ * swap internally for LCD_Clear()/etc, so this must match whatever
+ * orientation main.c actually passed to LCD_Init(). No real scrolling
+ * (yet) -- when the grid fills, the screen clears and starts again at the
+ * top-left. */
 
 #define TERM_BG RGB565_BLACK
 #define TERM_FG RGB565_WHITE
 #define RGB565_BLACK 0x0000
 #define RGB565_WHITE 0xffff
 
-static const sFONT *font = &Font16;
+static const sFONT *font = &Font8;
 static int cols, rows;
 static int cur_col, cur_row;
 
@@ -27,8 +31,8 @@ static int cur_col, cur_row;
 static enum { ANSI_NONE, ANSI_ESC, ANSI_CSI } ansi_state = ANSI_NONE;
 
 void lcd_console_init(void) {
-    cols = LCD_2_8_WIDTH / Font16.Width;
-    rows = LCD_2_8_HEIGHT / Font16.Height;
+    cols = LCD_2_8_HEIGHT / Font8.Width;  /* 320px wide in the rotated (landscape) orientation */
+    rows = LCD_2_8_WIDTH / Font8.Height;  /* 240px tall in the rotated (landscape) orientation */
     cur_col = 0;
     cur_row = 0;
     LCD_Clear(TERM_BG);

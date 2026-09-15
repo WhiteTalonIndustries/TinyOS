@@ -12,7 +12,7 @@ add_library(lcd
     lib/config/DEV_Config.c
     lib/lcd/LCD_Driver.c
     lib/lcd/LCD_GUI.c
-    lib/font/font16.c
+    lib/font/font8.c
 )
 target_include_directories(lcd PUBLIC lib/config lib/lcd lib/font)
 target_link_libraries(lcd PUBLIC pico_stdlib hardware_spi)

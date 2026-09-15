@@ -128,7 +128,7 @@ static void shell_execute(char *cmd_line) {
 
 int main(void) {
     System_Init();
-    LCD_Init(SCAN_DIR_DFT, 800);
+    LCD_Init(U2D_R2L, 800); /* landscape, rotated 90 deg clockwise -- D2U_L2R was tried first but confirmed on hardware to rotate counter-clockwise instead */
     status_show(STATUS_LCD_OK);
 
     stdio_init_all();
