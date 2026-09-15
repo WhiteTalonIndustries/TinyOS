@@ -43,8 +43,15 @@ static void advance_line(void) {
     cur_col = 0;
     cur_row++;
     if (cur_row >= rows) {
+        /* Wrap back to the top WITHOUT an explicit LCD_Clear() -- that's
+         * a full 320x240 framebuffer fill over SPI, visible as a
+         * whole-screen flash. Each character draw (GUI_DisChar, called
+         * with an explicit background color) already repaints its own
+         * cell, so text typed into the wrapped-to rows cleanly overwrites
+         * whatever was there before, one cell at a time, with no flash --
+         * still "no real scrolling" (old content isn't preserved, just
+         * overwritten), which is fine for a debug/status mirror. */
         cur_row = 0;
-        LCD_Clear(TERM_BG);
     }
 }
 

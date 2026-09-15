@@ -99,16 +99,34 @@ and pico-sdk's own `src/boards/include/boards/pimoroni_pico_plus2_w_rp2350.h`.
   clear + reprint of the whole buffer) after *every* keystroke, which was
   visibly slow/flickery here (USB CDC + the LCD mirror both in the output
   path, unlike RP2040's plain UART). Fixed with a `need_redraw` flag: the
-  two hot paths -- appending a character or backspacing, both at the true
-  end of the buffer, which is ordinary typing -- just echo the
-  character/`"\b \b"` locally instead of a full redraw; everything else
-  (arrow-key navigation, mid-buffer edits, newlines, save) still does the
-  full redraw, since correctly reflowing text after those without one is
-  real complexity this "nano-lite" doesn't need. `src_2040/editor.c` is
-  untouched (per this port's own rule that RP2040 stays bare-metal and
-  unaffected). **Confirmed on hardware**: typing a full sentence now
-  produces exactly one full redraw (on the first keystroke, to flip the
-  header's `[modified]` tag) instead of one per character.
+  three hot paths -- appending a character, backspacing, or hitting Enter,
+  all at the true end of the buffer (i.e. ordinary typing, including
+  writing line after line) -- just echo the character/`"\b \b"`/`"\r\n"`
+  locally instead of a full redraw; everything else (arrow-key
+  navigation, mid-buffer edits, save) still does the full redraw, since
+  correctly reflowing text after those without one is real complexity
+  this "nano-lite" doesn't need. The Enter-key fast path was added in a
+  follow-up after the first pass (chars/backspace only) turned out to
+  still flicker on every line break, since real usage means hitting Enter
+  constantly. `src_2040/editor.c` is untouched (per this port's own rule
+  that RP2040 stays bare-metal and unaffected). **Confirmed on
+  hardware**: typing three lines (two Enters) now produces exactly 2 full
+  redraws total (initial open + the first keystroke's `[modified]` flip)
+  instead of one per keystroke. A second, related fix: `lcd_console.c`'s
+  grid-wrap (`advance_line()`, when the LCD's 20-row text grid fills)
+  used to call `LCD_Clear()` -- a full 320x240 SPI framebuffer fill,
+  visible as a whole-screen flash -- every time the row counter wrapped;
+  before this session's fixes, nano's own per-keystroke `redraw()` was
+  masking this by resetting the row counter constantly, so it rarely
+  actually fired. Now it just wraps `cur_row` back to 0 without clearing
+  (each character's own `GUI_DisChar` draw already repaints its cell's
+  background, so old text is cleanly overwritten one glyph at a time --
+  still "no real scrolling", just without the flash). **Known,
+  intentional remaining full-redraws** (confirmed with the user these are
+  fine as-is, not further optimized, for a "nano-lite"): the very first
+  keystroke of an editing session (flips the header's `[modified]` tag),
+  backspacing over a newline (merges two lines, needs the whole buffer
+  reflowed), arrow-key navigation, and any other mid-buffer edit.
 - `adc.c` — `hardware_adc`-backed, using `ADC_BASE_PIN`/`NUM_ADC_CHANNELS`
   (which resolve correctly to GPIO40-47 + temp sensor *only* when built
   against the correct board, see above). Named `tinyos_adc_init()`, not

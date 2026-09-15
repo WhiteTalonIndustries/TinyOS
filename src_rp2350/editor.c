@@ -115,14 +115,27 @@ void nano_edit(const char *filename) {
         } else if (c == '\r') {
             if (len < EDIT_BUF_SIZE - 1) {
                 uint32_t i;
+                was_at_end = (cursor == len);
                 for (i = len; i > cursor; i--) buf[i] = buf[i - 1];
                 buf[cursor] = '\n';
                 len++;
                 cursor++;
-                dirty = 1;
+                if (was_at_end) {
+                    /* Same fast path as printable chars/backspace below:
+                     * a newline appended at the true end of the buffer
+                     * doesn't reflow anything, so just emit it and move
+                     * on -- this is what made multi-line typing (the
+                     * common case: writing line after line, hitting
+                     * Enter frequently) still flicker even after the
+                     * printable-char fast path was added. */
+                    console_puts("\r\n");
+                    if (!dirty) { dirty = 1; need_redraw = 1; }
+                } else {
+                    dirty = 1;
+                    need_redraw = 1; /* mid-buffer insert -- everything below reflows */
+                }
             }
             had_cr = 1;
-            need_redraw = 1; /* line count changed -- everything below reflows */
         } else if (c == 0x7f || c == 0x08) { /* backspace */
             if (cursor > 0) {
                 uint32_t i;
