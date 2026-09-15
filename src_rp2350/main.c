@@ -3,6 +3,7 @@
 #include "status.h"
 #include "lcd_console.h"
 #include "usb.h"
+#include "wifi.h"
 #include "fs.h"
 #include "editor.h"
 #include "script.h"
@@ -17,8 +18,13 @@
  * register access); adc.c/usb.c are pico-sdk-backed reimplementations of
  * the same interfaces; fs.c is a from-scratch SD/FatFs-backed
  * implementation. "mount"/"unmount" hand the SD card to/from the USB host
- * as a raw block device (msc_disk.c) alongside the CDC console. Command
- * surface otherwise matches src_2040/main.c exactly. */
+ * as a raw block device (msc_disk.c) alongside the CDC console. wifi.c
+ * brings up the CYW43 chip + lwIP (NO_SYS/polling, see lwipopts.h) from
+ * WIFI.CFG on the SD card, but only on demand via "wifi connect" -- NOT
+ * automatically at boot, since cyw43_arch_init() has caused a hard panic
+ * when brought up unconditionally at startup on this board. "ifconfig"
+ * reports connection state. Command surface otherwise matches
+ * src_2040/main.c exactly. */
 
 static char catbuf[4096];
 
@@ -50,7 +56,7 @@ static void shell_execute(char *cmd_line) {
     if (strcmp(cmd, "help") == 0) {
         printf("Commands: help, sysinfo, clear, hello, ls, cat <file>, write <file> <text>,\n"
                "          mkdir <dir>, rm <name>, mv <old> <new>, nano <file>, run <file>,\n"
-               "          format, mount, unmount, exit\n");
+               "          format, mount, unmount, wifi connect, ifconfig, exit\n");
     } else if (strcmp(cmd, "sysinfo") == 0) {
         printf("OS: TinyOS RP2350 (pico-sdk build)\nCPU: Arm Cortex-M33 (RP2350B)\nRAM: 520 KB\nSystem flash: 16 MB\nUser storage: microSD (FAT)\n");
     } else if (strcmp(cmd, "hello") == 0) {
@@ -130,6 +136,15 @@ static void shell_execute(char *cmd_line) {
         } else {
             printf("SD card reclaimed from the USB host.\n");
         }
+    } else if (strcmp(cmd, "wifi") == 0) {
+        arg1 = next_token(&cursor);
+        if (!arg1 || strcmp(arg1, "connect") != 0) {
+            printf("usage: wifi connect\n");
+        } else {
+            wifi_init();
+        }
+    } else if (strcmp(cmd, "ifconfig") == 0) {
+        wifi_print_status();
     } else if (strcmp(cmd, "exit") == 0) {
         printf("Closing console session...\n");
         console_disconnect();
@@ -160,6 +175,10 @@ int main(void) {
 
     fs_init();
     tinyos_adc_init();
+    /* WiFi stays off until explicitly requested (`wifi connect`) -- do NOT
+     * call wifi_init() automatically at boot: cyw43_arch_init() has
+     * caused a hard panic on this board when brought up unconditionally
+     * at startup. */
 
     printf("\033[2J\033[H");
     printf("===========================================\n");

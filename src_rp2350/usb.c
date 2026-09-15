@@ -1,4 +1,5 @@
 #include "usb.h"
+#include "wifi.h"
 #include "tusb.h"
 #include "pico/stdlib.h"
 #include "pico/stdio/driver.h"
@@ -22,16 +23,19 @@ static void cdc_stdio_out_chars(const char *buf, int len) {
         i += n;
         tud_cdc_write_flush();
         tud_task();
+        wifi_poll();
     }
 }
 
 static void cdc_stdio_out_flush(void) {
     tud_cdc_write_flush();
     tud_task();
+    wifi_poll();
 }
 
 static int cdc_stdio_in_chars(char *buf, int len) {
     tud_task();
+    wifi_poll();
     if (!tud_cdc_connected() || !tud_cdc_available()) return PICO_ERROR_NO_DATA;
     return (int)tud_cdc_read(buf, (uint32_t)len);
 }

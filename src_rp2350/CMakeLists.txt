@@ -37,7 +37,11 @@ target_link_libraries(sdcard PUBLIC pico_stdlib hardware_spi)
 # this a composite CDC+MSC device (console + "mount"/"unmount" of the SD
 # card) -- NOT using pico_enable_stdio_usb, since pico-sdk's own
 # pico_stdio_usb bakes in a fixed CDC-only descriptor set that can't
-# coexist with our own composite one (TinyUSB allows only one).
+# coexist with our own composite one (TinyUSB allows only one). wifi.c
+# brings up the onboard CYW43439 (this board is the "W" variant) via
+# pico_cyw43_arch_lwip_poll -- NO_SYS=1 lwIP, polled from usb.c's idle
+# loops (wifi_poll()) instead of a background IRQ thread, matching how
+# TinyUSB is already driven here. lwipopts.h configures lwIP itself.
 add_executable(tinyos_rp2350
     main.c
     status.c
@@ -49,6 +53,7 @@ add_executable(tinyos_rp2350
     editor.c
     script.c
     adc.c
+    wifi.c
 )
 target_include_directories(tinyos_rp2350 PRIVATE .)
 pico_enable_stdio_uart(tinyos_rp2350 0)
@@ -60,4 +65,5 @@ target_link_libraries(tinyos_rp2350
     hardware_adc
     tinyusb_device
     pico_unique_id
+    pico_cyw43_arch_lwip_poll
 )
