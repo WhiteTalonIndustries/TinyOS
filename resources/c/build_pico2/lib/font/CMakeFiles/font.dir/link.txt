@@ -1,0 +1,2 @@
+/Applications/ArmGNUToolchain/15.3.rel1/arm-none-eabi/bin/arm-none-eabi-ar qc libfont.a CMakeFiles/font.dir/font12.c.o CMakeFiles/font.dir/font16.c.o CMakeFiles/font.dir/font20.c.o CMakeFiles/font.dir/font24.c.o CMakeFiles/font.dir/font8.c.o
+/Applications/ArmGNUToolchain/15.3.rel1/arm-none-eabi/bin/arm-none-eabi-ranlib libfont.a
