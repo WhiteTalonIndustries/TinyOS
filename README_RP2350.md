@@ -39,23 +39,56 @@ building against `pico2_w` silently resolves ADC to the wrong GPIOs
 the QFN60/RP2350A the plain Pico 2 W uses. Confirmed via `picotool info -d`
 and pico-sdk's own `src/boards/include/boards/pimoroni_pico_plus2_w_rp2350.h`.
 
-- `lib/config/DEV_Config.c` + `lib/lcd/LCD_Driver.c` — Waveshare's actual
-  driver code, copied in as-is (touch/GUI/Bmp/fatfs/sdcard intentionally
-  excluded — this is a debugging-output display, not a full graphics stack).
-- `status.c`/`status.h` — solid-color status codes (`STATUS_BOOTING`/
-  `STATUS_LCD_OK`/`STATUS_USB_WAITING`/`STATUS_USB_OK`/`STATUS_ERROR`).
-  **All five confirmed rendering correctly on hardware.**
+- `lib/config/DEV_Config.c` + `lib/lcd/LCD_Driver.c` + `lib/lcd/LCD_GUI.c`
+  (`Font12`/`Font24` only) — Waveshare's actual driver code, copied in as-is
+  (touch/Bmp intentionally excluded).
+- `status.c`/`status.h` — "TinyOS" rendered as centered colored text
+  (`STATUS_BOOTING`/`STATUS_LCD_OK`/`STATUS_USB_WAITING`/`STATUS_USB_OK`/
+  `STATUS_ERROR`, each its own color) on a black background — a splash
+  label, not a solid-color block. **Confirmed rendering correctly.**
+- `lcd_console.c`/`.h` — mirrors the entire USB shell (banner, prompts,
+  command output, echoed input) onto the LCD as scrolling Font12 text, via
+  a registered pico-sdk `stdio_driver_t` (catches every `printf`/`putchar`
+  call anywhere in the codebase). Display runs landscape, rotated 90deg
+  clockwise (`LCD_Init(U2D_R2L, ...)` — `D2U_L2R` was tried first and
+  confirmed on hardware to rotate the wrong way). **Confirmed showing
+  readable shell text.** No real scrolling yet (clears and restarts at the
+  top when the grid fills) and no ANSI emulation beyond swallowing the two
+  escape sequences this codebase actually emits (`\033[2J`/`\033[H`, both
+  treated as "clear").
 - `usb.c`/`usb.h` — a `console_*` API (matching `src_2040/usb.h`'s
-  interface) implemented on top of pico-sdk's `stdio_usb` (TinyUSB
-  underneath), so `editor.c`/`script.c` below can be reused from
-  `src_2040` completely unmodified.
-- `flash.c` — `hardware_flash`-backed (`flash_range_erase`/`_program` with
-  `save_and_disable_interrupts()`, since this is single-core with no
-  `multicore_launch_core1()`) implementation of `src_2040/flash.h`'s
-  interface.
-- `fs.c`, `editor.c`, `script.c` — copied verbatim from `src_2040` (pure
-  logic, no register access; `fs.c` only has its flash-size constant
-  changed for this board's 16MB part).
+  interface) on top of a **composite TinyUSB CDC+MSC device** (not
+  pico-sdk's own `pico_stdio_usb`, which bakes in a fixed CDC-only
+  descriptor set that can't coexist with a second class -- see
+  `usb_descriptors.c`, adapted directly from
+  `lib/tinyusb/examples/device/cdc_msc/src/usb_descriptors.c`). Registers
+  a `stdio_driver_t` for the CDC console, same fan-out mechanism
+  `lcd_console.c` uses, so `editor.c`/`script.c`/every `printf()` call
+  site needed zero changes.
+- `msc_disk.c` — the MSC side of that composite device: exposes the SD
+  card to the connected PC as a raw USB drive, reading/writing straight
+  through to `MMC_SD.c`'s sector I/O (the same calls `diskio.c` uses for
+  TinyOS's own filesystem). Gated by `fs_usb_mount()`/`fs_usb_unmount()`
+  in `fs.c` so exactly one side (TinyOS's FatFs or the USB host) ever
+  touches the card at a time; a host "safely eject" also triggers
+  `fs_usb_unmount()` automatically. New shell commands `mount` (hand the
+  card to the host) and `unmount` (take it back). **Confirmed working on
+  hardware**: `mount` makes the card appear as a normal drive on the host
+  PC (it's a real FAT filesystem, since it's the same medium `fs.c`
+  formats), and `unmount` hands it back to the shell's own `ls`/`cat`/etc.
+- `fs.c` — **microSD is TinyOS's user storage; the onboard 16MB flash is
+  reserved for the system image only** (nothing touches raw flash anymore
+  — `flash.c`/`flash.h` were removed entirely). A from-scratch
+  implementation of `src_2040/fs.h`'s interface backed by Waveshare's
+  `lib/sdcard/MMC_SD.c` (SPI driver) + the elm-chan FatFs library
+  (`lib/fatfs/`, an older pre-`FF_`-prefix release — `_USE_MKFS` enabled in
+  `ffconf.h` so `fs_format()` can do a real low-level SD format;
+  `fatfs_storage.c`, Waveshare's bitmap-display-specific wrapper, is not
+  used). Filenames are 8.3 short-name only (`_USE_LFN 0`), so they show up
+  uppercase (`HELLO.TXT`, not `hello.txt`).
+- `editor.c`, `script.c` — copied verbatim from `src_2040` (pure logic, no
+  register/storage access — work unchanged against the new SD-backed
+  `fs.c` through the same `fs.h` interface).
 - `adc.c` — `hardware_adc`-backed, using `ADC_BASE_PIN`/`NUM_ADC_CHANNELS`
   (which resolve correctly to GPIO40-47 + temp sensor *only* when built
   against the correct board, see above). Named `tinyos_adc_init()`, not
@@ -63,32 +96,18 @@ and pico-sdk's own `src/boards/include/boards/pimoroni_pico_plus2_w_rp2350.h`.
   function with that exact name.
 - `main.c` — full `src_2040`-parity shell: `help`, `sysinfo`, `hello`,
   `clear`, `ls`, `cat`, `write`, `mkdir`, `rm`, `mv`, `nano`, `run`,
-  `format`, `exit`.
+  `format`, `mount`, `unmount`, `exit`.
 
-**Hardware-confirmed working, end to end, over a real USB connection**:
-enumeration, banner, `sysinfo`, `format`, `write`/`ls`/`cat`/`mkdir`/`rm`
-(real flash-backed persistence), and `run` executing a TinyScript script
-that calls `randdigit()` — confirmed pulling genuinely different values
-from the ADC noise source across repeated runs. `nano` (the full-screen
-editor) hasn't been separately exercised yet (harder to script
+**Hardware-confirmed working, end to end, over a real USB connection, on a
+real 16GB microSD card**: enumeration, banner, `sysinfo`, `format` (real
+low-level SD format), `write`/`ls`/`cat`/`mkdir`/`rm` (a directory created
+before a reflash was confirmed still present after, i.e. genuine on-card
+persistence, not just in-RAM state), and `run` executing a TinyScript
+script that calls `randdigit()` — confirmed pulling genuinely different
+values from the ADC noise source across repeated runs. `nano` (the
+full-screen editor) hasn't been separately exercised yet (harder to script
 non-interactively) but shares the same `fs_read`/`fs_write` calls already
 proven above and is otherwise identical to `src_2040/editor.c`.
-
-- `lcd_console.c`/`.h` — mirrors the entire USB shell (banner, prompts,
-  command output, echoed input) onto the LCD as scrolling text, via a
-  registered pico-sdk `stdio_driver_t` (so it catches every `printf`/
-  `putchar` call anywhere in the codebase, not just calls that happen to go
-  through `usb.c`'s `console_*` wrappers) plus Waveshare's `LCD_GUI.c`
-  (`GUI_DisChar`, Font16 only). **Confirmed showing readable shell text on
-  hardware.** No real scrolling yet (clears and restarts at the top when
-  the grid fills) and no ANSI emulation beyond swallowing the two escape
-  sequences this codebase actually emits (`\033[2J`/`\033[H`, both treated
-  as "clear").
-
-The microSD slot on the Waveshare board is also available as a persistence
-mechanism across reflashes if needed later (e.g. a boot log written to SD
-and read back after a hang) — noted here since it's easy to forget it's
-there once SD/FatFs work starts.
 
 ### Build & flash
 

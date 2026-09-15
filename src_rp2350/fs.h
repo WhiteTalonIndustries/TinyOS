@@ -39,4 +39,16 @@ int fs_mkdir(const char *name);
 int fs_remove(const char *name);
 int fs_rename(const char *old_name, const char *new_name);
 
+/* Hands the SD card to the USB host as a raw block device (msc_disk.c),
+ * unmounting TinyOS's own FatFs first so only one side ever touches the
+ * card at a time. Returns 0 on success. */
+int fs_usb_mount(void);
+
+/* Reclaims the card from the host (also called automatically on a host
+ * "safely eject") and remounts TinyOS's own FatFs. Returns 0 on success. */
+int fs_usb_unmount(void);
+
+/* True while the card is currently handed to the USB host. */
+int fs_usb_is_mounted(void);
+
 #endif

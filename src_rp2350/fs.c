@@ -15,6 +15,7 @@
 
 static FATFS fatfs;
 static uint8_t mounted;
+static uint8_t exposed_to_usb;
 
 void fs_init(void) {
     /* SD_CS is shared on SPI1 with the LCD (separate chip-selects) --
@@ -96,4 +97,26 @@ int fs_rename(const char *old_name, const char *new_name) {
     if (!mounted) return -1;
     if (new_name[0] == '\0' || strlen(new_name) >= FS_NAME_LEN) return -1;
     return (f_rename(old_name, new_name) == FR_OK) ? 0 : -1;
+}
+
+int fs_usb_mount(void) {
+    if (exposed_to_usb) return 0;
+    /* f_mount(NULL, ...) unmounts without touching media -- releases our
+     * hold on the card so msc_disk.c's raw sector I/O doesn't race FatFs's
+     * own in-RAM state (window/FAT caches, etc.) against the host. */
+    f_mount((FATFS *)0, "0:", 0);
+    mounted = 0;
+    exposed_to_usb = 1;
+    return 0;
+}
+
+int fs_usb_unmount(void) {
+    if (!exposed_to_usb) return 0;
+    exposed_to_usb = 0;
+    mounted = (f_mount(&fatfs, "0:", 1) == FR_OK);
+    return mounted ? 0 : -1;
+}
+
+int fs_usb_is_mounted(void) {
+    return exposed_to_usb;
 }

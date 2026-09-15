@@ -11,11 +11,14 @@
 #include <stdio.h>
 #include <string.h>
 
-/* 2040-parity shell, built on pico-sdk's stdio_usb instead of a bare-metal
- * USB device-controller port -- see README_RP2350.md. editor.c/script.c/
- * fs.c are reused verbatim from src_2040 (pure logic, no register access);
- * flash.c/adc.c/usb.c are pico-sdk-backed reimplementations of the same
- * interfaces. Command surface matches src_2040/main.c exactly. */
+/* 2040-parity shell, built on a composite TinyUSB CDC+MSC device instead of
+ * a bare-metal USB device-controller port -- see README_RP2350.md.
+ * editor.c/script.c are reused verbatim from src_2040 (pure logic, no
+ * register access); adc.c/usb.c are pico-sdk-backed reimplementations of
+ * the same interfaces; fs.c is a from-scratch SD/FatFs-backed
+ * implementation. "mount"/"unmount" hand the SD card to/from the USB host
+ * as a raw block device (msc_disk.c) alongside the CDC console. Command
+ * surface otherwise matches src_2040/main.c exactly. */
 
 static char catbuf[4096];
 
@@ -47,7 +50,7 @@ static void shell_execute(char *cmd_line) {
     if (strcmp(cmd, "help") == 0) {
         printf("Commands: help, sysinfo, clear, hello, ls, cat <file>, write <file> <text>,\n"
                "          mkdir <dir>, rm <name>, mv <old> <new>, nano <file>, run <file>,\n"
-               "          format, exit\n");
+               "          format, mount, unmount, exit\n");
     } else if (strcmp(cmd, "sysinfo") == 0) {
         printf("OS: TinyOS RP2350 (pico-sdk build)\nCPU: Arm Cortex-M33 (RP2350B)\nRAM: 520 KB\nSystem flash: 16 MB\nUser storage: microSD (FAT)\n");
     } else if (strcmp(cmd, "hello") == 0) {
@@ -117,6 +120,16 @@ static void shell_execute(char *cmd_line) {
     } else if (strcmp(cmd, "format") == 0) {
         fs_format();
         printf("Filesystem formatted.\n");
+    } else if (strcmp(cmd, "mount") == 0) {
+        fs_usb_mount();
+        printf("SD card handed to the USB host -- appears as a drive on the PC.\n"
+               "TinyOS's own file commands are unavailable until 'unmount'.\n");
+    } else if (strcmp(cmd, "unmount") == 0) {
+        if (fs_usb_unmount() != 0) {
+            printf("unmount: failed to remount the filesystem\n");
+        } else {
+            printf("SD card reclaimed from the USB host.\n");
+        }
     } else if (strcmp(cmd, "exit") == 0) {
         printf("Closing console session...\n");
         console_disconnect();
@@ -131,8 +144,9 @@ int main(void) {
     status_show(STATUS_LCD_OK);
 
     stdio_init_all();
+    usb_init();
     status_show(STATUS_USB_WAITING);
-    while (!stdio_usb_connected()) {
+    while (!usb_console_connected()) {
         tight_loop_contents();
     }
     status_show(STATUS_USB_OK);

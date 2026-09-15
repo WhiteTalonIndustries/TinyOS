@@ -33,19 +33,31 @@ target_link_libraries(sdcard PUBLIC pico_stdlib hardware_spi)
 # src_2040's interfaces; editor.c/script.c are reused verbatim from
 # src_2040 (pure logic, no register access). fs.c is a from-scratch
 # SD/FatFs-backed implementation of src_2040's fs.h interface (not reused
-# from src_2040, which is flash-backed).
+# from src_2040, which is flash-backed). usb_descriptors.c/msc_disk.c make
+# this a composite CDC+MSC device (console + "mount"/"unmount" of the SD
+# card) -- NOT using pico_enable_stdio_usb, since pico-sdk's own
+# pico_stdio_usb bakes in a fixed CDC-only descriptor set that can't
+# coexist with our own composite one (TinyUSB allows only one).
 add_executable(tinyos_rp2350
     main.c
     status.c
     lcd_console.c
     usb.c
+    usb_descriptors.c
+    msc_disk.c
     fs.c
     editor.c
     script.c
     adc.c
 )
 target_include_directories(tinyos_rp2350 PRIVATE .)
-pico_enable_stdio_usb(tinyos_rp2350 1)
 pico_enable_stdio_uart(tinyos_rp2350 0)
 pico_add_extra_outputs(tinyos_rp2350)
-target_link_libraries(tinyos_rp2350 lcd sdcard pico_stdlib hardware_adc)
+target_link_libraries(tinyos_rp2350
+    lcd
+    sdcard
+    pico_stdlib
+    hardware_adc
+    tinyusb_device
+    pico_unique_id
+)
