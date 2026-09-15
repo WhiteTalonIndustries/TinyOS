@@ -14,7 +14,7 @@ add_library(lcd
 target_include_directories(lcd PUBLIC lib/config lib/lcd)
 target_link_libraries(lcd PUBLIC pico_stdlib hardware_spi)
 
-add_executable(tinyos_rp2350 main.c)
+add_executable(tinyos_rp2350 main.c status.c)
 pico_enable_stdio_usb(tinyos_rp2350 1)
 pico_enable_stdio_uart(tinyos_rp2350 0)
 pico_add_extra_outputs(tinyos_rp2350)
