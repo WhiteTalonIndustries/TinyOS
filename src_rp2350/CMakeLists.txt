@@ -56,6 +56,7 @@ add_executable(tinyos_rp2350
     trng.c
     wifi.c
     net.c
+    cardkb.c
 )
 target_include_directories(tinyos_rp2350 PRIVATE .)
 pico_enable_stdio_uart(tinyos_rp2350 0)
@@ -65,6 +66,7 @@ target_link_libraries(tinyos_rp2350
     sdcard
     pico_stdlib
     hardware_adc
+    hardware_i2c
     tinyusb_device
     pico_unique_id
     pico_cyw43_arch_lwip_poll

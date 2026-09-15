@@ -5,6 +5,7 @@
 #include "usb.h"
 #include "wifi.h"
 #include "net.h"
+#include "cardkb.h"
 #include "fs.h"
 #include "editor.h"
 #include "script.h"
@@ -199,6 +200,7 @@ int main(void) {
 
     fs_init();
     tinyos_adc_init();
+    cardkb_init(); /* CardKB over the onboard STEMMA QT port (I2C0) -- safe with nothing plugged in yet */
     /* WiFi stays off until explicitly requested (`wifi connect`) -- do NOT
      * call wifi_init() automatically at boot: cyw43_arch_init() has
      * caused a hard panic on this board when brought up unconditionally

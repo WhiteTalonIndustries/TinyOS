@@ -144,6 +144,25 @@ and pico-sdk's own `src/boards/include/boards/pimoroni_pico_plus2_w_rp2350.h`.
   TRNG to call), same divergence pattern as `editor.c` above.
   **Confirmed on hardware**: a one-time-pad-style TinyScript (`digit()`/
   `group()`, 50 five-digit groups) ran correctly end-to-end.
+- `cardkb.c`/`cardkb.h` — an M5Stack CardKB keyboard, meant to plug into
+  the board's onboard STEMMA QT/Qwiic connector (`hardware_i2c` on I2C0,
+  GPIO4/5 -- `PICO_DEFAULT_I2C_SDA_PIN`/`PICO_DEFAULT_I2C_SCL_PIN` per
+  pico-sdk's own board header for this exact board). Registers as an
+  additional stdio input source (same fan-out mechanism `usb.c`/
+  `lcd_console.c` use), so the shell/`nano`/`script.c` pick up CardKB
+  keystrokes with zero changes -- indistinguishable from typing over USB.
+  Ground-truthed against M5Stack's own docs/example code and a
+  from-scratch CardKB-protocol emulator project that documents the full
+  key-code table, not guessed: I2C address `0x5F`, single-byte poll
+  (`0x00` = no key), plain ASCII for regular keys plus `0x0D`/`0x08` for
+  Enter/Backspace, and non-ASCII `0xB4`-`0xB7` for the Fn+arrow combos
+  (translated here to the same `ESC [ A/B/C/D` sequences a real VT100
+  terminal sends, which is what `editor.c`'s arrow handling already
+  expects). Polls at ~50Hz with a bounded 2ms I2C timeout so an absent/
+  unplugged keyboard can't stall the shared `getchar()` loop other input
+  sources (USB CDC, etc.) also depend on. **Not yet hardware-tested** --
+  the user is still waiting on a STEMMA QT-to-Grove cable; confirmed only
+  that the board boots and stays responsive with nothing plugged in.
 - `wifi.c`/`wifi.h` — CYW43439 WiFi + lwIP (`pico_cyw43_arch_lwip_poll`,
   `NO_SYS=1`, polled from `usb.c`'s idle loops alongside `tud_task()` --
   see `lwipopts.h`). Credentials come from `WIFI.CFG` on the SD card (two
