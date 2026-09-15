@@ -114,6 +114,18 @@ and pico-sdk's own `src/boards/include/boards/pimoroni_pico_plus2_w_rp2350.h`.
   against the correct board, see above). Named `tinyos_adc_init()`, not
   `adc_init()`, since pico-sdk's own `hardware/adc.h` already declares a
   function with that exact name.
+- `trng.c`/`trng.h` — RP2350's real hardware TRNG (a Rambus/CryptoCell
+  entropy IP block), not adc.c's noise-based approximation. Built against
+  pico-sdk's own generated `hardware/structs/trng.h` (ground-truthed --
+  an early draft hand-derived the register base/bit layout from a generic
+  CryptoCell TRNG datasheet and got both wrong: base `0x400e8000` instead
+  of the real `0x400f0000`, and misread which `RNG_ISR` bits mean
+  VN/CRNGT/autocorrelation errors). `script.c`'s `randdigit()` now calls
+  this instead of `adc_random_digit()` -- the one place
+  `src_rp2350/script.c` diverges from `src_2040/script.c` (which has no
+  TRNG to call), same divergence pattern as `editor.c` above.
+  **Confirmed on hardware**: a one-time-pad-style TinyScript (`digit()`/
+  `group()`, 50 five-digit groups) ran correctly end-to-end.
 - `wifi.c`/`wifi.h` — CYW43439 WiFi + lwIP (`pico_cyw43_arch_lwip_poll`,
   `NO_SYS=1`, polled from `usb.c`'s idle loops alongside `tud_task()` --
   see `lwipopts.h`). Credentials come from `WIFI.CFG` on the SD card (two

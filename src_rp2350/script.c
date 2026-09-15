@@ -2,7 +2,7 @@
 #include "script.h"
 #include "usb.h"
 #include "fs.h"
-#include "adc.h"
+#include "trng.h"
 #include "string.h"
 
 /* ================= arena allocator (AST nodes + string data) ================= */
@@ -649,7 +649,12 @@ static value_t native_len(value_t *args, int argc) {
 
 static value_t native_randdigit(value_t *args, int argc) {
     (void)args; (void)argc;
-    return val_int(adc_random_digit());
+    /* RP2350 has a real hardware TRNG (trng.c) -- genuinely better
+     * entropy than adc.c's floating-pin-noise approximation, so use it
+     * here instead. This is the one place src_rp2350/script.c diverges
+     * from src_2040/script.c (which has no TRNG to call), same as
+     * editor.c's redraw fix -- src_2040 stays untouched. */
+    return val_int(tinyos_trng_random_digit());
 }
 
 typedef value_t (*native_fn_t)(value_t *args, int argc);

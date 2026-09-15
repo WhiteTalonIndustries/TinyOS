@@ -53,6 +53,7 @@ add_executable(tinyos_rp2350
     editor.c
     script.c
     adc.c
+    trng.c
     wifi.c
     net.c
 )
