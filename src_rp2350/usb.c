@@ -18,7 +18,12 @@
 
 static void cdc_stdio_out_chars(const char *buf, int len) {
     int i = 0;
-    while (i < len) {
+    /* Without a host draining the CDC TX FIFO, tud_cdc_write() stops
+     * accepting bytes once it fills and returns 0 forever -- looping on
+     * that (as this used to) hangs every printf() whenever no USB
+     * terminal is attached, which now includes normal LCD+CardKB-only
+     * operation. Bail out instead of spinning if nothing's connected. */
+    while (i < len && tud_cdc_connected()) {
         int n = tud_cdc_write(buf + i, (uint32_t)(len - i));
         i += n;
         tud_cdc_write_flush();
@@ -28,6 +33,7 @@ static void cdc_stdio_out_chars(const char *buf, int len) {
 }
 
 static void cdc_stdio_out_flush(void) {
+    if (!tud_cdc_connected()) return;
     tud_cdc_write_flush();
     tud_task();
     wifi_poll();

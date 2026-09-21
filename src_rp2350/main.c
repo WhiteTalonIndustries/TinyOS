@@ -185,16 +185,22 @@ int main(void) {
 
     stdio_init_all();
     usb_init();
-    status_show(STATUS_USB_WAITING);
-    while (!usb_console_connected()) {
-        tight_loop_contents();
-    }
+    status_show(STATUS_USB_WAITING); /* USB is now optional -- see below -- so this is shown only briefly */
+
+    /* The board is fully usable standalone via the LCD + CardKB, so boot
+     * no longer blocks here waiting for a USB terminal to connect (it
+     * used to spin forever on `while (!usb_console_connected())`, which
+     * meant the board was useless without a PC on the other end of the
+     * cable). USB CDC keeps enumerating/connecting in the background --
+     * tud_task() is still polled every time console_getc() calls
+     * getchar() -- and cdc_stdio_out_chars() (usb.c) now skips writing
+     * when nothing is connected instead of spinning on a full TX FIFO, so
+     * printf() to the LCD-only console never blocks on an absent host. */
     status_show(STATUS_USB_OK);
 
-    /* From here on, everything printed to the USB console also renders on
-     * the LCD -- register AFTER the status-code screens above so those
-     * solid colors aren't immediately overwritten by the terminal's black
-     * background. */
+    /* From here on, everything printed also renders on the LCD -- register
+     * AFTER the status-code screens above so those solid colors aren't
+     * immediately overwritten by the terminal's black background. */
     lcd_console_init();
     lcd_console_register_stdio();
 
