@@ -42,7 +42,19 @@ static int cardkb_in_chars(char *buf, int len) {
     next_poll_time = make_timeout_time_ms(CARDKB_POLL_MS);
 
     rc = i2c_read_timeout_us(i2c0, CARDKB_I2C_ADDR, &key, 1, false, CARDKB_TIMEOUT_US);
-    if (rc < 0 || key == 0) return PICO_ERROR_NO_DATA;
+    if (rc != 1 || key == 0) return PICO_ERROR_NO_DATA;
+
+    /* Sanity-check the byte before trusting it: a real CardKB only ever
+     * sends printable ASCII, Enter/Backspace/Tab/Esc, or the four
+     * Fn+arrow codes below. Anything else is bus noise (a marginal
+     * STEMMA cable, or another intermittent electrical issue) rather
+     * than a real keystroke -- treat it as no data instead of echoing
+     * junk to the console. */
+    if (key != 0x08 && key != 0x09 && key != 0x0D && key != 0x1B &&
+        !(key >= 0x20 && key <= 0x7E) &&
+        !(key >= CARDKB_KEY_LEFT && key <= CARDKB_KEY_RIGHT)) {
+        return PICO_ERROR_NO_DATA;
+    }
 
     switch (key) {
         case CARDKB_KEY_LEFT:  { uint8_t seq[3] = {0x1b, '[', 'D'}; queue_bytes(seq, 3); break; }
